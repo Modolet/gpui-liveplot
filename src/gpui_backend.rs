@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use gpui::prelude::*;
 use gpui::{
@@ -34,6 +35,8 @@ use crate::view::{Range, Viewport};
 const AXIS_PADDING: f32 = 6.0;
 const TICK_LENGTH_MAJOR: f32 = 6.0;
 const TICK_LENGTH_MINOR: f32 = 3.0;
+const PIN_FEEDBACK_MS: u64 = 1200;
+const DOUBLE_CLICK_PIN_GRACE_MS: u64 = 500;
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -106,19 +109,18 @@ impl GpuiPlotView {
         state.last_cursor = Some(pos);
 
         if ev.button == MouseButton::Left && ev.click_count >= 2 && region == HitRegion::Plot {
-            if let (Some(transform), Some(last_toggle)) =
-                (state.transform.clone(), state.last_pin_toggle.take())
+            if let Some(last_toggle) = state.last_pin_toggle.take()
+                && last_toggle.at.elapsed() <= Duration::from_millis(DOUBLE_CLICK_PIN_GRACE_MS)
             {
                 if let Ok(mut plot) = self.plot.write() {
-                    let hit = find_nearest_point(
-                        plot.series(),
-                        &transform,
-                        pos,
-                        self.config.pin_threshold_px,
-                    );
-                    if hit.is_some_and(|hit| hit.pin == last_toggle.pin) {
-                        revert_pin_toggle(&mut plot, last_toggle);
-                    }
+                    revert_pin_toggle(&mut plot, last_toggle);
+                }
+                if state
+                    .pin_feedback
+                    .as_ref()
+                    .is_some_and(|feedback| feedback.pin == last_toggle.pin)
+                {
+                    state.pin_feedback = None;
                 }
             }
             if let Ok(mut plot) = self.plot.write() {
@@ -277,9 +279,16 @@ impl GpuiPlotView {
                     );
                     if let Some(hit) = hit {
                         let added = toggle_pin(plot.pins_mut(), hit.pin);
+                        let now = Instant::now();
                         state.last_pin_toggle = Some(PinToggle {
                             pin: hit.pin,
                             added,
+                            at: now,
+                        });
+                        state.pin_feedback = Some(PinFeedback {
+                            pin: hit.pin,
+                            added,
+                            expires_at: now + Duration::from_millis(PIN_FEEDBACK_MS),
                         });
                     }
                 }
@@ -446,6 +455,14 @@ struct ClickState {
 struct PinToggle {
     pin: crate::interaction::Pin,
     added: bool,
+    at: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct PinFeedback {
+    pin: crate::interaction::Pin,
+    added: bool,
+    expires_at: Instant,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -465,6 +482,7 @@ struct PlotUiState {
     drag: Option<DragState>,
     pending_click: Option<ClickState>,
     last_pin_toggle: Option<PinToggle>,
+    pin_feedback: Option<PinFeedback>,
     selection_rect: Option<ScreenRect>,
     hover: Option<ScreenPoint>,
     last_cursor: Option<ScreenPoint>,
@@ -488,6 +506,7 @@ impl Default for PlotUiState {
             drag: None,
             pending_click: None,
             last_pin_toggle: None,
+            pin_feedback: None,
             selection_rect: None,
             hover: None,
             last_cursor: None,
@@ -615,6 +634,7 @@ fn build_frame(
         build_series(&mut render, plot, state, &transform, plot_rect);
         build_selection(&mut render, plot, state);
         build_pins(&mut render, plot, &transform, plot_rect, &measurer);
+        build_pin_feedback(&mut render, plot, state, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
             plot,
@@ -880,6 +900,14 @@ fn build_pins(
             continue;
         };
 
+        if screen.x < plot_rect.min.x
+            || screen.x > plot_rect.max.x
+            || screen.y < plot_rect.min.y
+            || screen.y > plot_rect.max.y
+        {
+            continue;
+        }
+
         let x_text = plot.x_axis().format_value(point.x);
         let y_text = plot.y_axis().format_value(point.y);
         let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
@@ -938,6 +966,88 @@ fn build_pins(
     }
 
     render.push(RenderCommand::ClipEnd);
+}
+
+fn build_pin_feedback(
+    render: &mut RenderList,
+    plot: &Plot,
+    state: &mut PlotUiState,
+    transform: &Transform,
+    plot_rect: ScreenRect,
+    measurer: &GpuiTextMeasurer<'_>,
+) {
+    let Some(feedback) = state.pin_feedback.clone() else {
+        return;
+    };
+    if feedback.expires_at <= Instant::now() {
+        state.pin_feedback = None;
+        return;
+    }
+
+    let Some(series) = plot
+        .series()
+        .iter()
+        .find(|series| series.id() == feedback.pin.series_id)
+    else {
+        state.pin_feedback = None;
+        return;
+    };
+    let Some(point) = series.data().data().point(feedback.pin.point_index) else {
+        state.pin_feedback = None;
+        return;
+    };
+    let Some(screen) = transform.data_to_screen(point) else {
+        return;
+    };
+    if screen.x < plot_rect.min.x
+        || screen.x > plot_rect.max.x
+        || screen.y < plot_rect.min.y
+        || screen.y > plot_rect.max.y
+    {
+        return;
+    }
+
+    let theme = plot.theme();
+    let font_size = 12.0;
+    let line_height = 14.0;
+    let action = if feedback.added { "Pinned" } else { "Unpinned" };
+    let x_text = plot.x_axis().format_value(point.x);
+    let y_text = plot.y_axis().format_value(point.y);
+    let label = format!("{action}: {}\nx: {x_text}\ny: {y_text}", series.name());
+    let size = measurer.measure_multiline(&label, font_size);
+
+    let mut origin = ScreenPoint::new(screen.x + 12.0, screen.y + 12.0);
+    if origin.x + size.0 > plot_rect.max.x {
+        origin.x = screen.x - size.0 - 12.0;
+    }
+    if origin.y + size.1 > plot_rect.max.y {
+        origin.y = screen.y - size.1 - 12.0;
+    }
+    origin = clamp_point(origin, plot_rect, size);
+
+    render.push(RenderCommand::Rect {
+        rect: ScreenRect::new(
+            origin,
+            ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+        ),
+        style: RectStyle {
+            fill: theme.pin_bg,
+            stroke: theme.pin_border,
+            stroke_width: 1.0,
+        },
+    });
+
+    for (index, line) in label.lines().enumerate() {
+        let line_y = origin.y + index as f32 * line_height + 2.0;
+        render.push(RenderCommand::Text {
+            position: ScreenPoint::new(origin.x + 4.0, line_y),
+            text: line.to_string(),
+            style: TextStyle {
+                color: theme.axis,
+                size: font_size,
+            },
+        });
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
