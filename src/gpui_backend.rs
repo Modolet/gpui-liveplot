@@ -280,7 +280,7 @@ impl GpuiPlotView {
         cx.notify();
     }
 
-    fn on_scroll(&mut self, ev: &ScrollWheelEvent, window: &Window, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &Window, cx: &mut Context<Self>) {
         let pos = screen_point(ev.position);
         let mut state = self.state.write().expect("plot state lock");
         let region = state.regions.hit_test(pos);
@@ -316,7 +316,6 @@ impl GpuiPlotView {
             }
         }
 
-        window.request_animation_frame();
         cx.notify();
     }
 }
