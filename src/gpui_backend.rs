@@ -47,9 +47,8 @@ const PIN_CLUSTER_RADIUS: f32 = 40.0;
 const LEGEND_FONT_SIZE: f32 = 12.0;
 const LEGEND_LINE_HEIGHT: f32 = 16.0;
 const LEGEND_PADDING: f32 = 6.0;
-const LEGEND_TOGGLE_WIDTH: f32 = 28.0;
-const LEGEND_TOGGLE_HEIGHT: f32 = 14.0;
-const LEGEND_TOGGLE_TEXT_SIZE: f32 = 9.0;
+const LEGEND_TOGGLE_DIAMETER: f32 = 12.0;
+const LEGEND_TOGGLE_INNER_DIAMETER: f32 = 8.0;
 const LEGEND_TOGGLE_GAP: f32 = 6.0;
 const LEGEND_SWATCH_WIDTH: f32 = 16.0;
 const LEGEND_SWATCH_GAP: f32 = 6.0;
@@ -1507,8 +1506,11 @@ fn build_legend(
     let font_size = LEGEND_FONT_SIZE;
     let line_height = LEGEND_LINE_HEIGHT;
     let padding = LEGEND_PADDING;
-    let text_start_x =
-        padding + LEGEND_TOGGLE_WIDTH + LEGEND_TOGGLE_GAP + LEGEND_SWATCH_WIDTH + LEGEND_SWATCH_GAP;
+    let text_start_x = padding
+        + LEGEND_TOGGLE_DIAMETER
+        + LEGEND_TOGGLE_GAP
+        + LEGEND_SWATCH_WIDTH
+        + LEGEND_SWATCH_GAP;
     let mut max_width: f32 = 0.0;
     for series in series_list {
         let size = measurer.measure(series.name(), font_size);
@@ -1546,13 +1548,13 @@ fn build_legend(
         let row_center_y = row_y + line_height * 0.5;
         let toggle_origin = ScreenPoint::new(
             origin.x + padding,
-            row_center_y - LEGEND_TOGGLE_HEIGHT * 0.5,
+            row_center_y - LEGEND_TOGGLE_DIAMETER * 0.5,
         );
         let toggle_rect = ScreenRect::new(
             toggle_origin,
             ScreenPoint::new(
-                toggle_origin.x + LEGEND_TOGGLE_WIDTH,
-                toggle_origin.y + LEGEND_TOGGLE_HEIGHT,
+                toggle_origin.x + LEGEND_TOGGLE_DIAMETER,
+                toggle_origin.y + LEGEND_TOGGLE_DIAMETER,
             ),
         );
         entries.push(LegendEntry {
@@ -1572,42 +1574,35 @@ fn build_legend(
         } else {
             with_alpha(theme.axis, LEGEND_TEXT_HIDDEN_ALPHA)
         };
-        let toggle_fill = if visible {
-            with_alpha(series_color, 0.85)
+        let ring_color = if visible {
+            with_alpha(theme.axis, 0.7)
         } else {
-            with_alpha(theme.axis, 0.12)
+            with_alpha(theme.axis, 0.45)
         };
-        let toggle_stroke = if visible {
-            with_alpha(theme.axis, 0.6)
+        let fill_color = if visible {
+            series_color
         } else {
-            with_alpha(theme.axis, 0.35)
+            theme.legend_bg
         };
+        let toggle_center = ScreenPoint::new(
+            toggle_rect.min.x + LEGEND_TOGGLE_DIAMETER * 0.5,
+            toggle_rect.min.y + LEGEND_TOGGLE_DIAMETER * 0.5,
+        );
 
-        render.push(RenderCommand::Rect {
-            rect: toggle_rect,
-            style: RectStyle {
-                fill: toggle_fill,
-                stroke: toggle_stroke,
-                stroke_width: 1.0,
+        render.push(RenderCommand::Points {
+            points: vec![toggle_center],
+            style: MarkerStyle {
+                color: ring_color,
+                size: LEGEND_TOGGLE_DIAMETER,
+                shape: MarkerShape::Circle,
             },
         });
-        let toggle_label = if visible { "ON" } else { "OFF" };
-        let toggle_label_color = if visible {
-            contrast_color(series_color)
-        } else {
-            with_alpha(theme.axis, LEGEND_TEXT_HIDDEN_ALPHA)
-        };
-        let toggle_label_size = measurer.measure(toggle_label, LEGEND_TOGGLE_TEXT_SIZE);
-        let toggle_label_pos = ScreenPoint::new(
-            toggle_rect.min.x + (LEGEND_TOGGLE_WIDTH - toggle_label_size.0) * 0.5,
-            toggle_rect.min.y + (LEGEND_TOGGLE_HEIGHT - toggle_label_size.1) * 0.5,
-        );
-        render.push(RenderCommand::Text {
-            position: toggle_label_pos,
-            text: toggle_label.to_string(),
-            style: TextStyle {
-                color: toggle_label_color,
-                size: LEGEND_TOGGLE_TEXT_SIZE,
+        render.push(RenderCommand::Points {
+            points: vec![toggle_center],
+            style: MarkerStyle {
+                color: fill_color,
+                size: LEGEND_TOGGLE_INNER_DIAMETER,
+                shape: MarkerShape::Circle,
             },
         });
 
@@ -1850,15 +1845,6 @@ fn with_alpha(color: Color, alpha: f32) -> Color {
     Color {
         a: (color.a * alpha).clamp(0.0, 1.0),
         ..color
-    }
-}
-
-fn contrast_color(color: Color) -> Color {
-    let luma = 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
-    if luma > 0.6 {
-        Color::BLACK
-    } else {
-        Color::WHITE
     }
 }
 
