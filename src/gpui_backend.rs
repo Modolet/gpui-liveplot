@@ -39,6 +39,9 @@ const DOUBLE_CLICK_PIN_GRACE_MS: u64 = 1200;
 const PIN_RING_INNER_PAD: f32 = 4.0;
 const PIN_RING_OUTER_PAD: f32 = 8.0;
 const PIN_UNPIN_HIGHLIGHT: Color = Color::new(0.95, 0.25, 0.25, 1.0);
+const PIN_LABEL_OFFSET: f32 = 10.0;
+const MAX_PIN_LABELS: usize = 12;
+const MAX_PIN_LABEL_COVERAGE: f32 = 0.35;
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -895,6 +898,7 @@ fn build_pins(
     let theme = plot.theme();
     let font_size = 12.0;
     let line_height = 14.0;
+    let mut labels: Vec<(ScreenPoint, String, (f32, f32))> = Vec::new();
     render.push(RenderCommand::ClipRect(plot_rect));
 
     for pin in plot.pins() {
@@ -950,38 +954,55 @@ fn build_pins(
         let y_text = plot.y_axis().format_value(point.y);
         let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
         let size = measurer.measure_multiline(&label, font_size);
+        labels.push((screen, label, size));
+    }
 
-        let mut origin = ScreenPoint::new(screen.x + 10.0, screen.y + 10.0);
-        if origin.x + size.0 > plot_rect.max.x {
-            origin.x = screen.x - size.0 - 10.0;
-        }
-        if origin.y + size.1 > plot_rect.max.y {
-            origin.y = screen.y - size.1 - 10.0;
-        }
-        origin = clamp_point(origin, plot_rect, size);
+    let plot_area = plot_rect.width().max(1.0) * plot_rect.height().max(1.0);
+    let total_label_area: f32 = labels.iter().map(|(_, _, size)| size.0 * size.1).sum();
+    let dense =
+        labels.len() > MAX_PIN_LABELS || total_label_area > plot_area * MAX_PIN_LABEL_COVERAGE;
 
-        render.push(RenderCommand::Rect {
-            rect: ScreenRect::new(
-                origin,
-                ScreenPoint::new(origin.x + size.0, origin.y + size.1),
-            ),
-            style: RectStyle {
-                fill: theme.pin_bg,
-                stroke: theme.pin_border,
-                stroke_width: 1.0,
-            },
-        });
+    if !dense {
+        let mut placed: Vec<ScreenRect> = Vec::new();
+        for (screen, label, size) in labels {
+            let mut placed_rect = None;
+            for origin in pin_label_candidates(screen, size, PIN_LABEL_OFFSET) {
+                let origin = clamp_point(origin, plot_rect, size);
+                let rect = ScreenRect::new(
+                    origin,
+                    ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+                );
+                if !rect_intersects_any(rect, &placed) {
+                    placed_rect = Some((origin, rect));
+                    break;
+                }
+            }
 
-        for (index, line) in label.lines().enumerate() {
-            let line_y = origin.y + index as f32 * line_height + 2.0;
-            render.push(RenderCommand::Text {
-                position: ScreenPoint::new(origin.x + 4.0, line_y),
-                text: line.to_string(),
-                style: TextStyle {
-                    color: theme.axis,
-                    size: font_size,
+            let Some((origin, rect)) = placed_rect else {
+                continue;
+            };
+            placed.push(rect);
+
+            render.push(RenderCommand::Rect {
+                rect,
+                style: RectStyle {
+                    fill: theme.pin_bg,
+                    stroke: theme.pin_border,
+                    stroke_width: 1.0,
                 },
             });
+
+            for (index, line) in label.lines().enumerate() {
+                let line_y = origin.y + index as f32 * line_height + 2.0;
+                render.push(RenderCommand::Text {
+                    position: ScreenPoint::new(origin.x + 4.0, line_y),
+                    text: line.to_string(),
+                    style: TextStyle {
+                        color: theme.axis,
+                        size: font_size,
+                    },
+                });
+            }
         }
     }
 
@@ -1615,6 +1636,25 @@ fn marker_style_and_size(series: &Series) -> (MarkerStyle, f32) {
             marker.size.max(6.0),
         ),
     }
+}
+
+fn pin_label_candidates(screen: ScreenPoint, size: (f32, f32), offset: f32) -> [ScreenPoint; 6] {
+    [
+        ScreenPoint::new(screen.x + offset, screen.y + offset),
+        ScreenPoint::new(screen.x + offset, screen.y - size.1 - offset),
+        ScreenPoint::new(screen.x - size.0 - offset, screen.y + offset),
+        ScreenPoint::new(screen.x - size.0 - offset, screen.y - size.1 - offset),
+        ScreenPoint::new(screen.x - size.0 * 0.5, screen.y - size.1 - offset),
+        ScreenPoint::new(screen.x - size.0 * 0.5, screen.y + offset),
+    ]
+}
+
+fn rect_intersects(a: ScreenRect, b: ScreenRect) -> bool {
+    !(a.max.x <= b.min.x || a.min.x >= b.max.x || a.max.y <= b.min.y || a.min.y >= b.max.y)
+}
+
+fn rect_intersects_any(rect: ScreenRect, others: &[ScreenRect]) -> bool {
+    others.iter().any(|other| rect_intersects(rect, *other))
 }
 
 fn hover_target_within_threshold(
