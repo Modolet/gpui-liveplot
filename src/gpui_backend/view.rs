@@ -1,0 +1,452 @@
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
+
+use gpui::prelude::*;
+use gpui::{
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent,
+    Window, canvas, div, px,
+};
+
+use crate::geom::{Point as DataPoint, ScreenPoint, ScreenRect};
+use crate::interaction::{
+    HitRegion, pan_viewport, toggle_pin, zoom_factor_from_drag, zoom_to_rect, zoom_viewport,
+};
+use crate::plot::Plot;
+use crate::transform::Transform;
+use crate::view::Viewport;
+
+use super::config::PlotViewConfig;
+use super::constants::DOUBLE_CLICK_PIN_GRACE_MS;
+use super::frame::build_frame;
+use super::geometry::{distance_sq, normalized_rect};
+use super::hover::{compute_hover_target, hover_target_within_threshold};
+use super::paint::{paint_frame, to_hsla};
+use super::state::{ClickState, DragMode, DragState, PinToggle, PlotUiState};
+
+/// A GPUI view that renders a [`Plot`] with interactive controls.
+#[derive(Clone)]
+pub struct GpuiPlotView {
+    plot: Arc<RwLock<Plot>>,
+    state: Arc<RwLock<PlotUiState>>,
+    config: PlotViewConfig,
+}
+
+impl GpuiPlotView {
+    /// Create a new GPUI plot view for the given plot.
+    pub fn new(plot: Plot) -> Self {
+        Self {
+            plot: Arc::new(RwLock::new(plot)),
+            state: Arc::new(RwLock::new(PlotUiState::default())),
+            config: PlotViewConfig::default(),
+        }
+    }
+
+    /// Create a new GPUI plot view with a custom configuration.
+    pub fn with_config(plot: Plot, config: PlotViewConfig) -> Self {
+        Self {
+            plot: Arc::new(RwLock::new(plot)),
+            state: Arc::new(RwLock::new(PlotUiState::default())),
+            config,
+        }
+    }
+
+    /// Get a handle for mutating the underlying plot.
+    pub fn plot_handle(&self) -> PlotHandle {
+        PlotHandle {
+            plot: Arc::clone(&self.plot),
+        }
+    }
+
+    fn on_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
+        let pos = screen_point(ev.position);
+        let mut state = self.state.write().expect("plot state lock");
+        state.last_cursor = Some(pos);
+
+        if let Some(series_id) = state.legend_hit(pos) {
+            if ev.button == MouseButton::Left && ev.click_count == 1 {
+                if let Ok(mut plot) = self.plot.write() {
+                    if let Some(series) = plot
+                        .series_mut()
+                        .iter_mut()
+                        .find(|series| series.id() == series_id)
+                    {
+                        series.set_visible(!series.is_visible());
+                    }
+                }
+            }
+            state.clear_interaction();
+            state.hover = None;
+            state.hover_target = None;
+            cx.notify();
+            return;
+        }
+
+        let region = state.regions.hit_test(pos);
+        if ev.button == MouseButton::Left && ev.click_count >= 2 && region == HitRegion::Plot {
+            let last_toggle = state.last_pin_toggle.take();
+            if let Ok(mut plot) = self.plot.write() {
+                if let Some(last_toggle) = last_toggle {
+                    if last_toggle.at.elapsed() <= Duration::from_millis(DOUBLE_CLICK_PIN_GRACE_MS)
+                        && distance_sq(last_toggle.screen_pos, pos)
+                            <= self.config.pin_threshold_px.powi(2)
+                    {
+                        revert_pin_toggle(&mut plot, last_toggle);
+                    }
+                }
+                plot.reset_view();
+            }
+            state.clear_interaction();
+            cx.notify();
+            return;
+        }
+
+        state.pending_click = Some(ClickState {
+            region,
+            button: ev.button,
+        });
+
+        match (ev.button, region) {
+            (MouseButton::Left, HitRegion::XAxis) => {
+                state.drag = Some(DragState::new(DragMode::ZoomX, pos, true));
+            }
+            (MouseButton::Left, HitRegion::YAxis) => {
+                state.drag = Some(DragState::new(DragMode::ZoomY, pos, true));
+            }
+            (MouseButton::Left, HitRegion::Plot) => {
+                state.drag = Some(DragState::new(DragMode::Pan, pos, false));
+            }
+            (MouseButton::Right, HitRegion::Plot) => {
+                state.drag = Some(DragState::new(DragMode::ZoomRect, pos, true));
+                state.selection_rect = Some(ScreenRect::new(pos, pos));
+            }
+            _ => {}
+        }
+
+        cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, ev: &MouseMoveEvent, cx: &mut Context<Self>) {
+        let pos = screen_point(ev.position);
+        let mut state = self.state.write().expect("plot state lock");
+        state.last_cursor = Some(pos);
+
+        if state.legend_hit(pos).is_some() {
+            state.hover = None;
+        } else if state.regions.hit_test(pos) == HitRegion::Plot {
+            state.hover = Some(pos);
+        } else {
+            state.hover = None;
+        }
+
+        let Some(mut drag) = state.drag.clone() else {
+            cx.notify();
+            return;
+        };
+
+        let moved_sq = distance_sq(drag.start, pos);
+        if !drag.active && moved_sq > self.config.drag_threshold_px.powi(2) {
+            drag.active = true;
+        }
+
+        if !drag.active {
+            state.drag = Some(drag);
+            cx.notify();
+            return;
+        }
+
+        let delta = ScreenPoint::new(pos.x - drag.last.x, pos.y - drag.last.y);
+        let plot_rect = state.plot_rect;
+        let transform = state.transform.clone();
+
+        match drag.mode {
+            DragMode::Pan => {
+                if let (Some(rect), Some(transform)) = (plot_rect, transform) {
+                    if let Ok(mut plot) = self.plot.write() {
+                        if let Some(viewport) = plot.viewport() {
+                            if let Some(next) = pan_viewport(viewport, delta, &transform) {
+                                apply_manual_view(&mut plot, &mut state, rect, next);
+                            }
+                        }
+                    }
+                }
+            }
+            DragMode::ZoomRect => {
+                state.selection_rect = Some(ScreenRect::new(drag.start, pos));
+            }
+            DragMode::ZoomX => {
+                if let (Some(rect), Some(transform)) = (plot_rect, transform) {
+                    let axis_pixels = rect.width().max(1.0);
+                    let factor = zoom_factor_from_drag(delta.x, axis_pixels);
+                    if let Ok(mut plot) = self.plot.write() {
+                        if let Some(viewport) = plot.viewport() {
+                            let center = transform
+                                .screen_to_data(pos)
+                                .unwrap_or_else(|| viewport.x_center());
+                            let next = zoom_viewport(viewport, center, factor, 1.0);
+                            apply_manual_view(&mut plot, &mut state, rect, next);
+                        }
+                    }
+                }
+            }
+            DragMode::ZoomY => {
+                if let (Some(rect), Some(transform)) = (plot_rect, transform) {
+                    let axis_pixels = rect.height().max(1.0);
+                    let factor = zoom_factor_from_drag(-delta.y, axis_pixels);
+                    if let Ok(mut plot) = self.plot.write() {
+                        if let Some(viewport) = plot.viewport() {
+                            let center = transform
+                                .screen_to_data(pos)
+                                .unwrap_or_else(|| viewport.y_center());
+                            let next = zoom_viewport(viewport, center, 1.0, factor);
+                            apply_manual_view(&mut plot, &mut state, rect, next);
+                        }
+                    }
+                }
+            }
+        }
+
+        drag.last = pos;
+        state.drag = Some(drag);
+        state.pending_click = None;
+        cx.notify();
+    }
+
+    fn on_mouse_up(&mut self, ev: &MouseUpEvent, cx: &mut Context<Self>) {
+        let pos = screen_point(ev.position);
+        let mut state = self.state.write().expect("plot state lock");
+        let drag = state.drag.clone();
+
+        if let Some(drag_state) = drag.as_ref() {
+            if drag_state.active && drag_state.mode == DragMode::ZoomRect {
+                if let (Some(rect), Some(transform)) =
+                    (state.selection_rect.take(), state.transform.clone())
+                {
+                    let rect = normalized_rect(rect);
+                    if let Ok(mut plot) = self.plot.write() {
+                        if let Some(viewport) = plot.viewport() {
+                            if let Some(next) = zoom_to_rect(viewport, rect, &transform) {
+                                apply_manual_view(&mut plot, &mut state, transform.screen(), next);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let click = state.pending_click.take();
+        let should_toggle = click.as_ref().is_some_and(|click| {
+            click.button == MouseButton::Left && click.region == HitRegion::Plot
+        }) && drag.as_ref().is_none_or(|drag| !drag.active)
+            && ev.click_count == 1;
+
+        if should_toggle {
+            if let Some(transform) = state.transform.clone() {
+                if let Ok(mut plot) = self.plot.write() {
+                    let target = state
+                        .hover_target
+                        .filter(|target| hover_target_within_threshold(target, pos, &self.config))
+                        .or_else(|| {
+                            compute_hover_target(
+                                &plot,
+                                &transform,
+                                pos,
+                                state.plot_rect,
+                                self.config.pin_threshold_px,
+                                self.config.unpin_threshold_px,
+                            )
+                        });
+
+                    if let Some(target) = target {
+                        let added = toggle_pin(plot.pins_mut(), target.pin);
+                        let now = Instant::now();
+                        state.last_pin_toggle = Some(PinToggle {
+                            pin: target.pin,
+                            added,
+                            at: now,
+                            screen_pos: target.screen,
+                        });
+                    }
+                }
+            }
+        } else if ev.click_count > 1 {
+            state.last_pin_toggle = None;
+        }
+
+        state.drag = None;
+        state.selection_rect = None;
+        cx.notify();
+    }
+
+    fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &Window, cx: &mut Context<Self>) {
+        let pos = screen_point(ev.position);
+        let mut state = self.state.write().expect("plot state lock");
+        if state.legend_hit(pos).is_some() {
+            return;
+        }
+        let region = state.regions.hit_test(pos);
+        let Some(transform) = state.transform.clone() else {
+            return;
+        };
+
+        let line_height = px(16.0);
+        let delta = ev.delta.pixel_delta(line_height);
+        let zoom_delta = -f32::from(delta.y);
+        if zoom_delta.abs() < 0.01 {
+            return;
+        }
+        let factor = (1.0 - (zoom_delta as f64 * 0.002)).clamp(0.1, 10.0);
+
+        if let Ok(mut plot) = self.plot.write() {
+            if let Some(viewport) = plot.viewport() {
+                let center = transform
+                    .screen_to_data(pos)
+                    .unwrap_or_else(|| viewport.center());
+                let (factor_x, factor_y) = match region {
+                    HitRegion::XAxis => (factor, 1.0),
+                    HitRegion::YAxis => (1.0, factor),
+                    HitRegion::Plot => (factor, factor),
+                    HitRegion::Outside => (1.0, 1.0),
+                };
+                if factor_x != 1.0 || factor_y != 1.0 {
+                    let next = zoom_viewport(viewport, center, factor_x, factor_y);
+                    if let Some(rect) = state.plot_rect {
+                        apply_manual_view(&mut plot, &mut state, rect, next);
+                    }
+                }
+            }
+        }
+
+        cx.notify();
+    }
+}
+
+impl Render for GpuiPlotView {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let plot = Arc::clone(&self.plot);
+        let state = Arc::clone(&self.state);
+        let config = self.config.clone();
+        let theme = plot.read().expect("plot lock").theme().clone();
+
+        div()
+            .size_full()
+            .bg(to_hsla(theme.background))
+            .child(
+                canvas(
+                    move |bounds, window, _| {
+                        let mut plot = plot.write().expect("plot lock");
+                        let mut state = state.write().expect("plot state lock");
+                        build_frame(&mut plot, &mut state, &config, bounds, window)
+                    },
+                    move |_, frame, window, cx| {
+                        paint_frame(&frame, window, cx);
+                    },
+                )
+                .size_full(),
+            )
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_down(ev, cx);
+                }),
+            )
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_down(ev, cx);
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, ev, _, cx| {
+                this.on_mouse_move(ev, cx);
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_up(ev, cx);
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_up(ev, cx);
+                }),
+            )
+            .on_scroll_wheel(cx.listener(|this, ev, window, cx| {
+                this.on_scroll(ev, window, cx);
+            }))
+    }
+}
+
+/// A handle for mutating a [`Plot`] held inside a `GpuiPlotView`.
+#[derive(Clone)]
+pub struct PlotHandle {
+    plot: Arc<RwLock<Plot>>,
+}
+
+impl PlotHandle {
+    /// Read the plot state.
+    pub fn read<R>(&self, f: impl FnOnce(&Plot) -> R) -> R {
+        let plot = self.plot.read().expect("plot lock");
+        f(&plot)
+    }
+
+    /// Mutate the plot state.
+    pub fn write<R>(&self, f: impl FnOnce(&mut Plot) -> R) -> R {
+        let mut plot = self.plot.write().expect("plot lock");
+        f(&mut plot)
+    }
+}
+
+fn screen_point(point: Point<Pixels>) -> ScreenPoint {
+    ScreenPoint::new(f32::from(point.x), f32::from(point.y))
+}
+
+fn apply_manual_view(
+    plot: &mut Plot,
+    state: &mut PlotUiState,
+    rect: ScreenRect,
+    viewport: Viewport,
+) {
+    plot.set_manual_view(viewport);
+    state.viewport = Some(viewport);
+    state.transform = Transform::new(viewport, rect, plot.x_axis().scale(), plot.y_axis().scale());
+}
+
+fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {
+    let pins = plot.pins_mut();
+    if toggle.added {
+        if let Some(index) = pins.iter().position(|pin| *pin == toggle.pin) {
+            pins.swap_remove(index);
+        }
+    } else if !pins.contains(&toggle.pin) {
+        pins.push(toggle.pin);
+    }
+}
+
+trait ViewportCenter {
+    fn center(&self) -> DataPoint;
+    fn x_center(&self) -> DataPoint;
+    fn y_center(&self) -> DataPoint;
+}
+
+impl ViewportCenter for Viewport {
+    fn center(&self) -> DataPoint {
+        DataPoint::new(
+            (self.x.min + self.x.max) * 0.5,
+            (self.y.min + self.y.max) * 0.5,
+        )
+    }
+
+    fn x_center(&self) -> DataPoint {
+        DataPoint::new(
+            (self.x.min + self.x.max) * 0.5,
+            (self.y.min + self.y.max) * 0.5,
+        )
+    }
+
+    fn y_center(&self) -> DataPoint {
+        DataPoint::new(
+            (self.x.min + self.x.max) * 0.5,
+            (self.y.min + self.y.max) * 0.5,
+        )
+    }
+}
