@@ -12,7 +12,7 @@ pub mod transform;
 pub mod view;
 
 pub use axis::{AxisConfig, AxisFormatter, AxisScale};
-pub use datasource::{AppendError, AppendOnlyData, XMode};
+pub use datasource::{AppendError, AppendOnlyData, DecimationScratch, SeriesStore, XMode};
 pub use geom::{Point, ScreenPoint, ScreenRect};
 pub use plot::{Plot, PlotBuilder};
 pub use style::Theme;

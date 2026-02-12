@@ -1,5 +1,11 @@
 //! Data sources and append-only storage.
 
+mod store;
+mod summary;
+
+pub use store::SeriesStore;
+pub use summary::DecimationScratch;
+
 use crate::geom::Point;
 use crate::view::{Range, Viewport};
 
