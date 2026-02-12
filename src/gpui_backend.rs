@@ -726,6 +726,7 @@ fn build_frame(
             &x_layout,
             &y_layout,
             plot_rect,
+            &transform,
             x_axis_rect,
             y_axis_rect,
             &measurer,
@@ -1160,6 +1161,7 @@ fn build_axes(
     x_layout: &AxisLayout,
     y_layout: &AxisLayout,
     plot_rect: ScreenRect,
+    transform: &Transform,
     _x_axis_rect: ScreenRect,
     _y_axis_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
@@ -1179,85 +1181,78 @@ fn build_axes(
         });
     }
 
-    if let Some(transform) = Transform::new(
-        plot.viewport().unwrap_or_else(transform_fallback_viewport),
-        plot_rect,
-        plot.x_axis().scale(),
-        plot.y_axis().scale(),
-    ) {
-        for tick in &x_layout.ticks {
-            if let Some(x) = transform
-                .data_to_screen(DataPoint::new(tick.value, transform.viewport().y.min))
-                .map(|p| p.x)
-            {
-                let length = if tick.is_major {
-                    TICK_LENGTH_MAJOR
-                } else {
-                    TICK_LENGTH_MINOR
-                };
-                let segment = LineSegment::new(
-                    ScreenPoint::new(x, plot_rect.max.y),
-                    ScreenPoint::new(x, plot_rect.max.y + length),
-                );
-                if tick.is_major {
-                    ticks_major.push(segment);
-                } else if plot.x_axis().show_minor_grid() {
-                    ticks_minor.push(segment);
-                }
+    for tick in &x_layout.ticks {
+        if let Some(x) = transform
+            .data_to_screen(DataPoint::new(tick.value, transform.viewport().y.min))
+            .map(|p| p.x)
+        {
+            let length = if tick.is_major {
+                TICK_LENGTH_MAJOR
+            } else {
+                TICK_LENGTH_MINOR
+            };
+            let segment = LineSegment::new(
+                ScreenPoint::new(x, plot_rect.max.y),
+                ScreenPoint::new(x, plot_rect.max.y + length),
+            );
+            if tick.is_major {
+                ticks_major.push(segment);
+            } else if plot.x_axis().show_minor_grid() {
+                ticks_minor.push(segment);
+            }
 
-                if tick.is_major && !tick.label.is_empty() {
-                    let size = measurer.measure(&tick.label, plot.x_axis().label_size());
-                    let pos = ScreenPoint::new(
-                        x - size.0 * 0.5,
-                        plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
-                    );
-                    render.push(RenderCommand::Text {
-                        position: pos,
-                        text: tick.label.clone(),
-                        style: TextStyle {
-                            color: theme.axis,
-                            size: plot.x_axis().label_size(),
-                        },
-                    });
-                }
+            if tick.is_major && !tick.label.is_empty() {
+                let size = measurer.measure(&tick.label, plot.x_axis().label_size());
+                let pos = ScreenPoint::new(
+                    x - size.0 * 0.5,
+                    plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
+                );
+                render.push(RenderCommand::Text {
+                    position: pos,
+                    text: tick.label.clone(),
+                    style: TextStyle {
+                        color: theme.axis,
+                        size: plot.x_axis().label_size(),
+                    },
+                });
             }
         }
+    }
 
-        for tick in &y_layout.ticks {
-            if let Some(y) = transform
-                .data_to_screen(DataPoint::new(transform.viewport().x.min, tick.value))
-                .map(|p| p.y)
-            {
-                let length = if tick.is_major {
-                    TICK_LENGTH_MAJOR
-                } else {
-                    TICK_LENGTH_MINOR
-                };
-                let segment = LineSegment::new(
-                    ScreenPoint::new(plot_rect.min.x - length, y),
-                    ScreenPoint::new(plot_rect.min.x, y),
+    for tick in &y_layout.ticks {
+        if let Some(y) = transform
+            .data_to_screen(DataPoint::new(transform.viewport().x.min, tick.value))
+            .map(|p| p.y)
+        {
+            let length = if tick.is_major {
+                TICK_LENGTH_MAJOR
+            } else {
+                TICK_LENGTH_MINOR
+            };
+            let segment = LineSegment::new(
+                ScreenPoint::new(plot_rect.min.x - length, y),
+                ScreenPoint::new(plot_rect.min.x, y),
+            );
+            if tick.is_major {
+                ticks_major.push(segment);
+            } else if plot.y_axis().show_minor_grid() {
+                ticks_minor.push(segment);
+            }
+
+            if tick.is_major && !tick.label.is_empty() {
+                let size = measurer.measure(&tick.label, plot.y_axis().label_size());
+                let pos = ScreenPoint::new(
+                    plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
+                    y - size.1 * 0.5,
                 );
-                if tick.is_major {
-                    ticks_major.push(segment);
-                } else if plot.y_axis().show_minor_grid() {
-                    ticks_minor.push(segment);
-                }
-
-                if tick.is_major && !tick.label.is_empty() {
-                    let size = measurer.measure(&tick.label, plot.y_axis().label_size());
-                    let pos = ScreenPoint::new(
-                        plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
-                        y - size.1 * 0.5,
-                    );
-                    render.push(RenderCommand::Text {
-                        position: pos,
-                        text: tick.label.clone(),
-                        style: TextStyle {
-                            color: theme.axis,
-                            size: plot.y_axis().label_size(),
-                        },
-                    });
-                }
+                render.push(RenderCommand::Text {
+                    position: pos,
+                    text: tick.label.clone(),
+                    style: TextStyle {
+                        color: theme.axis,
+                        size: plot.y_axis().label_size(),
+                    },
+                });
             }
         }
     }
@@ -2206,10 +2201,6 @@ fn series_color(series: &Series) -> Color {
         SeriesKind::Line(style) => style.color,
         SeriesKind::Scatter(style) => style.color,
     }
-}
-
-fn transform_fallback_viewport() -> Viewport {
-    Viewport::new(Range::new(0.0, 1.0), Range::new(0.0, 1.0))
 }
 
 fn apply_manual_view(
