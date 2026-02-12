@@ -14,7 +14,6 @@ pub mod style;
 pub mod transform;
 pub mod view;
 
-#[cfg(feature = "gpui")]
 pub mod gpui_backend;
 
 pub use axis::{
@@ -37,5 +36,4 @@ pub use style::Theme;
 pub use transform::Transform;
 pub use view::{Range, View, Viewport};
 
-#[cfg(feature = "gpui")]
 pub use gpui_backend::{GpuiPlotView, PlotHandle, PlotViewConfig};

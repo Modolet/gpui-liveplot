@@ -9,8 +9,7 @@ path = "src/lib.rs"
 [features]
 default = []
 time = ["dep:time"]
-gpui = ["dep:gpui"]
 
 [dependencies]
-gpui = { version = "0.2.2", optional = true }
+gpui = { version = "0.2.2" }
 time = { version = "0.3.47", optional = true, features = ["formatting", "local-offset"] }

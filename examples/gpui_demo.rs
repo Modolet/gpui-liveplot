@@ -1,19 +1,15 @@
-#[cfg(feature = "gpui")]
 use std::time::Duration;
 
-#[cfg(feature = "gpui")]
 use gpui::{
     AppContext, Application, AsyncWindowContext, Bounds, Timer, WindowBounds, WindowOptions, px,
     size,
 };
 
-#[cfg(feature = "gpui")]
 use gpui_plot::{
     AxisConfig, Color, GpuiPlotView, LineStyle, MarkerShape, MarkerStyle, Plot, Series, SeriesKind,
     Theme,
 };
 
-#[cfg(feature = "gpui")]
 fn main() {
     Application::new().run(|cx| {
         let options = WindowOptions {
@@ -92,9 +88,4 @@ fn main() {
         })
         .unwrap();
     });
-}
-
-#[cfg(not(feature = "gpui"))]
-fn main() {
-    eprintln!("Enable the gpui feature to run this example.");
 }
