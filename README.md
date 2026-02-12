@@ -35,6 +35,8 @@ plot.refresh_viewport(0.05, 1e-6);
   - `cargo run --example multi_series`
 - 时间轴（需 feature）：
   - `cargo run --example time_axis --features time`
+- GPUI 交互演示（需 feature）：
+  - `cargo run --example gpui_demo --features gpui`
 
 ## 开发自检
 
@@ -46,4 +48,3 @@ plot.refresh_viewport(0.05, 1e-6);
 1. 运行 `cargo run --example realtime_append` 并观察每秒输出的 decimated 点数保持在 O(width) 规模。
 2. 运行 `cargo run --example multi_series`，确认多条 series 同时参与抽稀与视口计算。
 3. 启用 `time` feature 运行 `cargo run --example time_axis --features time`。
-
