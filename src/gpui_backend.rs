@@ -36,7 +36,10 @@ const AXIS_PADDING: f32 = 6.0;
 const TICK_LENGTH_MAJOR: f32 = 6.0;
 const TICK_LENGTH_MINOR: f32 = 3.0;
 const PIN_FEEDBACK_MS: u64 = 1200;
-const DOUBLE_CLICK_PIN_GRACE_MS: u64 = 500;
+const DOUBLE_CLICK_PIN_GRACE_MS: u64 = 1200;
+const PIN_RING_INNER_PAD: f32 = 4.0;
+const PIN_RING_OUTER_PAD: f32 = 8.0;
+const PIN_UNPIN_HIGHLIGHT: Color = Color::new(0.95, 0.25, 0.25, 1.0);
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -109,21 +112,34 @@ impl GpuiPlotView {
         state.last_cursor = Some(pos);
 
         if ev.button == MouseButton::Left && ev.click_count >= 2 && region == HitRegion::Plot {
-            if let Some(last_toggle) = state.last_pin_toggle.take()
-                && last_toggle.at.elapsed() <= Duration::from_millis(DOUBLE_CLICK_PIN_GRACE_MS)
-            {
-                if let Ok(mut plot) = self.plot.write() {
-                    revert_pin_toggle(&mut plot, last_toggle);
+            let mut reverted = false;
+            let mut reverted_pin = None;
+            let last_toggle = state.last_pin_toggle.take();
+            if let Ok(mut plot) = self.plot.write() {
+                if let (Some(transform), Some(last_toggle)) = (state.transform.clone(), last_toggle)
+                {
+                    if last_toggle.at.elapsed() <= Duration::from_millis(DOUBLE_CLICK_PIN_GRACE_MS)
+                        && pin_within_threshold(
+                            &plot,
+                            last_toggle.pin,
+                            &transform,
+                            pos,
+                            self.config.pin_threshold_px,
+                        )
+                    {
+                        revert_pin_toggle(&mut plot, last_toggle);
+                        reverted = true;
+                        reverted_pin = Some(last_toggle.pin);
+                    }
                 }
-                if state
-                    .pin_feedback
-                    .as_ref()
-                    .is_some_and(|feedback| feedback.pin == last_toggle.pin)
+                if reverted
+                    && state
+                        .pin_feedback
+                        .as_ref()
+                        .is_some_and(|feedback| Some(feedback.pin) == reverted_pin)
                 {
                     state.pin_feedback = None;
                 }
-            }
-            if let Ok(mut plot) = self.plot.write() {
                 plot.reset_view();
             }
             state.clear_interaction();
@@ -633,7 +649,7 @@ fn build_frame(
         );
         build_series(&mut render, plot, state, &transform, plot_rect);
         build_selection(&mut render, plot, state);
-        build_pins(&mut render, plot, &transform, plot_rect, &measurer);
+        build_pins(&mut render, plot, state, &transform, plot_rect, &measurer);
         build_pin_feedback(&mut render, plot, state, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
@@ -872,6 +888,7 @@ fn build_selection(render: &mut RenderList, plot: &Plot, state: &PlotUiState) {
 fn build_pins(
     render: &mut RenderList,
     plot: &Plot,
+    state: &PlotUiState,
     transform: &Transform,
     plot_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
@@ -883,6 +900,13 @@ fn build_pins(
     let theme = plot.theme();
     let font_size = 12.0;
     let line_height = 14.0;
+    let feedback_pin = state.pin_feedback.as_ref().and_then(|feedback| {
+        if feedback.added && feedback.expires_at > Instant::now() {
+            Some(feedback.pin)
+        } else {
+            None
+        }
+    });
     render.push(RenderCommand::ClipRect(plot_rect));
 
     for pin in plot.pins() {
@@ -905,6 +929,53 @@ fn build_pins(
             || screen.y < plot_rect.min.y
             || screen.y > plot_rect.max.y
         {
+            continue;
+        }
+
+        let (marker_style, base_size) = match series.kind() {
+            SeriesKind::Line(line) => (
+                MarkerStyle {
+                    color: line.color,
+                    size: 6.0,
+                    shape: MarkerShape::Circle,
+                },
+                6.0,
+            ),
+            SeriesKind::Scatter(marker) => (
+                MarkerStyle {
+                    color: marker.color,
+                    size: marker.size.max(6.0),
+                    shape: marker.shape,
+                },
+                marker.size.max(6.0),
+            ),
+        };
+
+        let ring_outer = base_size + PIN_RING_OUTER_PAD;
+        let ring_inner = base_size + PIN_RING_INNER_PAD;
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: theme.axis,
+                size: ring_outer,
+                shape: MarkerShape::Circle,
+            },
+        });
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: theme.background,
+                size: ring_inner,
+                shape: MarkerShape::Circle,
+            },
+        });
+
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: marker_style,
+        });
+
+        if feedback_pin == Some(*pin) {
             continue;
         }
 
@@ -945,24 +1016,6 @@ fn build_pins(
                 },
             });
         }
-
-        let style = match series.kind() {
-            SeriesKind::Line(line) => MarkerStyle {
-                color: line.color,
-                size: 6.0,
-                shape: MarkerShape::Circle,
-            },
-            SeriesKind::Scatter(marker) => MarkerStyle {
-                color: marker.color,
-                size: marker.size.max(6.0),
-                shape: marker.shape,
-            },
-        };
-
-        render.push(RenderCommand::Points {
-            points: vec![screen],
-            style,
-        });
     }
 
     render.push(RenderCommand::ClipEnd);
@@ -1010,10 +1063,36 @@ fn build_pin_feedback(
     let theme = plot.theme();
     let font_size = 12.0;
     let line_height = 14.0;
-    let action = if feedback.added { "Pinned" } else { "Unpinned" };
+
+    if !feedback.added {
+        let base_size = match series.kind() {
+            SeriesKind::Line(_) => 6.0,
+            SeriesKind::Scatter(marker) => marker.size.max(6.0),
+        };
+        let ring_outer = base_size + PIN_RING_OUTER_PAD;
+        let ring_inner = base_size + PIN_RING_INNER_PAD;
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: PIN_UNPIN_HIGHLIGHT,
+                size: ring_outer,
+                shape: MarkerShape::Circle,
+            },
+        });
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: theme.background,
+                size: ring_inner,
+                shape: MarkerShape::Circle,
+            },
+        });
+        return;
+    }
+
     let x_text = plot.x_axis().format_value(point.x);
     let y_text = plot.y_axis().format_value(point.y);
-    let label = format!("{action}: {}\nx: {x_text}\ny: {y_text}", series.name());
+    let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
     let size = measurer.measure_multiline(&label, font_size);
 
     let mut origin = ScreenPoint::new(screen.x + 12.0, screen.y + 12.0);
@@ -1579,6 +1658,32 @@ fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {
     } else if !pins.iter().any(|pin| *pin == toggle.pin) {
         pins.push(toggle.pin);
     }
+}
+
+fn pin_within_threshold(
+    plot: &Plot,
+    pin: crate::interaction::Pin,
+    transform: &Transform,
+    cursor: ScreenPoint,
+    threshold: f32,
+) -> bool {
+    let Some(screen) = pin_screen_point(plot, pin, transform) else {
+        return false;
+    };
+    distance_sq(screen, cursor) <= threshold * threshold
+}
+
+fn pin_screen_point(
+    plot: &Plot,
+    pin: crate::interaction::Pin,
+    transform: &Transform,
+) -> Option<ScreenPoint> {
+    let series = plot
+        .series()
+        .iter()
+        .find(|series| series.id() == pin.series_id)?;
+    let point = series.data().data().point(pin.point_index)?;
+    transform.data_to_screen(point)
 }
 
 fn axis_title_text(axis: &AxisConfig) -> Option<String> {
