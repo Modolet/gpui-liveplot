@@ -43,7 +43,7 @@ const PIN_UNPIN_HIGHLIGHT: Color = Color::new(0.95, 0.25, 0.25, 1.0);
 const PIN_LABEL_OFFSET: f32 = 10.0;
 const MAX_PIN_LABELS: usize = 12;
 const MAX_PIN_LABEL_COVERAGE: f32 = 0.35;
-const PIN_CLUSTER_RADIUS: f32 = 20.0;
+const PIN_CLUSTER_RADIUS: f32 = 40.0;
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -475,6 +475,13 @@ struct HoverTarget {
     is_pinned: bool,
 }
 
+#[derive(Debug, Clone)]
+struct PinLabel {
+    screen: ScreenPoint,
+    label: String,
+    size: (f32, f32),
+}
+
 #[derive(Debug, Clone, Default)]
 struct SeriesCache {
     key: Option<RenderCacheKey>,
@@ -900,7 +907,7 @@ fn build_pins(
     let theme = plot.theme();
     let font_size = 12.0;
     let line_height = 14.0;
-    let mut labels: Vec<(ScreenPoint, String, (f32, f32))> = Vec::new();
+    let mut labels: Vec<PinLabel> = Vec::new();
     render.push(RenderCommand::ClipRect(plot_rect));
 
     for pin in plot.pins() {
@@ -956,58 +963,80 @@ fn build_pins(
         let y_text = plot.y_axis().format_value(point.y);
         let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
         let size = measurer.measure_multiline(&label, font_size);
-        labels.push((screen, label, size));
+        labels.push(PinLabel {
+            screen,
+            label,
+            size,
+        });
+    }
+
+    if labels.is_empty() {
+        render.push(RenderCommand::ClipEnd);
+        return;
     }
 
     let plot_area = plot_rect.width().max(1.0) * plot_rect.height().max(1.0);
-    let total_label_area: f32 = labels.iter().map(|(_, _, size)| size.0 * size.1).sum();
+    let total_label_area: f32 = labels.iter().map(|label| label.size.0 * label.size.1).sum();
     let dense =
         labels.len() > MAX_PIN_LABELS || total_label_area > plot_area * MAX_PIN_LABEL_COVERAGE;
 
-    if !dense {
-        let mut placed: Vec<ScreenRect> = Vec::new();
-        for (screen, label, size) in labels {
-            if let Some((origin, rect)) =
-                place_label(screen, size, plot_rect, PIN_LABEL_OFFSET, &placed)
-            {
-                placed.push(rect);
-                push_label_with_leader(
-                    render,
-                    rect,
-                    origin,
-                    screen,
-                    &label,
-                    font_size,
-                    line_height,
-                    theme,
-                );
-            }
+    let mut clusters = cluster_pin_labels(&labels, PIN_CLUSTER_RADIUS);
+    clusters.sort_by(|a, b| {
+        let size_cmp = b.len().cmp(&a.len());
+        if size_cmp != std::cmp::Ordering::Equal {
+            return size_cmp;
         }
-    } else {
-        let mut clusters: Vec<(ScreenPoint, usize)> = Vec::new();
-        for (screen, _, _) in &labels {
-            let mut assigned = false;
-            for (center, count) in clusters.iter_mut() {
-                if distance_sq(*center, *screen) <= PIN_CLUSTER_RADIUS * PIN_CLUSTER_RADIUS {
-                    let total = *count as f32 + 1.0;
-                    center.x = (center.x * *count as f32 + screen.x) / total;
-                    center.y = (center.y * *count as f32 + screen.y) / total;
-                    *count += 1;
-                    assigned = true;
-                    break;
+        let min_a = a.iter().copied().min().unwrap_or(0);
+        let min_b = b.iter().copied().min().unwrap_or(0);
+        min_a.cmp(&min_b)
+    });
+
+    let mut placed: Vec<ScreenRect> = Vec::new();
+    let mut single_budget = if dense { MAX_PIN_LABELS } else { usize::MAX };
+    for cluster in clusters {
+        if cluster.len() >= 2 {
+            if !dense {
+                let mut local_placed = placed.clone();
+                let mut placements: Vec<(ScreenPoint, ScreenRect, usize)> = Vec::new();
+                let mut success = true;
+                for index in &cluster {
+                    let entry = &labels[*index];
+                    if let Some((origin, rect)) = place_label(
+                        entry.screen,
+                        entry.size,
+                        plot_rect,
+                        PIN_LABEL_OFFSET,
+                        &local_placed,
+                    ) {
+                        local_placed.push(rect);
+                        placements.push((origin, rect, *index));
+                    } else {
+                        success = false;
+                        break;
+                    }
+                }
+
+                if success {
+                    placed = local_placed;
+                    for (origin, rect, index) in placements {
+                        let entry = &labels[index];
+                        push_label_with_leader(
+                            render,
+                            rect,
+                            origin,
+                            entry.screen,
+                            &entry.label,
+                            font_size,
+                            line_height,
+                            theme,
+                        );
+                    }
+                    continue;
                 }
             }
-            if !assigned {
-                clusters.push((*screen, 1));
-            }
-        }
 
-        let mut placed: Vec<ScreenRect> = Vec::new();
-        for (center, count) in clusters {
-            if count < 2 {
-                continue;
-            }
-            let label = format!("{count} pins");
+            let center = cluster_center(&labels, &cluster);
+            let label = format!("{} pins", cluster.len());
             let size = measurer.measure_multiline(&label, font_size);
             if let Some((origin, rect)) =
                 place_label(center, size, plot_rect, PIN_LABEL_OFFSET, &placed)
@@ -1024,6 +1053,33 @@ fn build_pins(
                     theme,
                 );
             }
+            continue;
+        }
+
+        if single_budget == 0 {
+            continue;
+        }
+        let index = cluster[0];
+        let entry = &labels[index];
+        if let Some((origin, rect)) = place_label(
+            entry.screen,
+            entry.size,
+            plot_rect,
+            PIN_LABEL_OFFSET,
+            &placed,
+        ) {
+            placed.push(rect);
+            push_label_with_leader(
+                render,
+                rect,
+                origin,
+                entry.screen,
+                &entry.label,
+                font_size,
+                line_height,
+                theme,
+            );
+            single_budget = single_budget.saturating_sub(1);
         }
     }
 
@@ -1659,6 +1715,48 @@ fn marker_style_and_size(series: &Series) -> (MarkerStyle, f32) {
     }
 }
 
+fn cluster_pin_labels(labels: &[PinLabel], radius: f32) -> Vec<Vec<usize>> {
+    let radius_sq = radius * radius;
+    let mut visited = vec![false; labels.len()];
+    let mut clusters: Vec<Vec<usize>> = Vec::new();
+
+    for start in 0..labels.len() {
+        if visited[start] {
+            continue;
+        }
+        visited[start] = true;
+        let mut cluster = Vec::new();
+        let mut stack = vec![start];
+        while let Some(index) = stack.pop() {
+            cluster.push(index);
+            for next in 0..labels.len() {
+                if visited[next] {
+                    continue;
+                }
+                if distance_sq(labels[index].screen, labels[next].screen) <= radius_sq {
+                    visited[next] = true;
+                    stack.push(next);
+                }
+            }
+        }
+        clusters.push(cluster);
+    }
+
+    clusters
+}
+
+fn cluster_center(labels: &[PinLabel], cluster: &[usize]) -> ScreenPoint {
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    for index in cluster {
+        let screen = labels[*index].screen;
+        sum_x += screen.x;
+        sum_y += screen.y;
+    }
+    let count = cluster.len().max(1) as f32;
+    ScreenPoint::new(sum_x / count, sum_y / count)
+}
+
 fn pin_label_candidates(screen: ScreenPoint, size: (f32, f32), offset: f32) -> [ScreenPoint; 6] {
     [
         ScreenPoint::new(screen.x + offset, screen.y + offset),
@@ -1698,6 +1796,7 @@ fn place_label(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_label_with_leader(
     render: &mut RenderList,
     rect: ScreenRect,
@@ -1864,7 +1963,7 @@ fn find_nearest_unpinned_point(
                 series_id: series.id(),
                 point_index: index,
             };
-            if pins.iter().any(|p| *p == pin) {
+            if pins.contains(&pin) {
                 continue;
             }
             let Some(screen) = transform.data_to_screen(point) else {
@@ -1931,7 +2030,7 @@ fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {
         if let Some(index) = pins.iter().position(|pin| *pin == toggle.pin) {
             pins.swap_remove(index);
         }
-    } else if !pins.iter().any(|pin| *pin == toggle.pin) {
+    } else if !pins.contains(&toggle.pin) {
         pins.push(toggle.pin);
     }
 }
