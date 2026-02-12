@@ -1,0 +1,284 @@
+//! Data sources and append-only storage.
+
+use crate::geom::Point;
+use crate::view::{Range, Viewport};
+
+/// Mode of the X axis data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum XMode {
+    /// X values are implicit indices.
+    Index,
+    /// X values are explicitly provided.
+    Explicit,
+}
+
+/// Errors that can occur when appending data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppendError {
+    /// Attempted to append with an incompatible X mode.
+    WrongMode,
+    /// Explicit X values are not monotonic.
+    NonMonotonicX,
+}
+
+/// Append-only data storage with incremental bounds tracking.
+#[derive(Debug, Clone)]
+pub struct AppendOnlyData {
+    points: Vec<Point>,
+    x_mode: XMode,
+    monotonic: bool,
+    bounds: Option<Viewport>,
+}
+
+impl AppendOnlyData {
+    /// Create an empty data set with implicit X indices.
+    pub fn indexed() -> Self {
+        Self {
+            points: Vec::new(),
+            x_mode: XMode::Index,
+            monotonic: true,
+            bounds: None,
+        }
+    }
+
+    /// Create an empty data set with explicit X values.
+    pub fn explicit() -> Self {
+        Self {
+            points: Vec::new(),
+            x_mode: XMode::Explicit,
+            monotonic: true,
+            bounds: None,
+        }
+    }
+
+    /// Build an indexed data set from an iterator of Y values.
+    pub fn from_iter_y<I, T>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        let mut data = Self::indexed();
+        for value in iter {
+            data.push_y(value.into()).ok();
+        }
+        data
+    }
+
+    /// Build an explicit data set from an iterator of points.
+    pub fn from_iter_points<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = Point>,
+    {
+        let mut data = Self::explicit();
+        for point in iter {
+            let _ = data.push_point(point);
+        }
+        data
+    }
+
+    /// Build an explicit data set by sampling a callback function.
+    pub fn from_explicit_callback(
+        function: impl Fn(f64) -> f64,
+        x_range: Range,
+        points: usize,
+    ) -> Self {
+        let mut data = Self::explicit();
+        if points == 0 {
+            return data;
+        }
+        let span = x_range.span();
+        let step = if points > 1 {
+            span / (points - 1) as f64
+        } else {
+            0.0
+        };
+        for i in 0..points {
+            let x = x_range.min + step * i as f64;
+            let y = function(x);
+            let _ = data.push_point(Point::new(x, y));
+        }
+        data
+    }
+
+    /// Append a Y value for indexed data.
+    pub fn push_y(&mut self, y: f64) -> Result<usize, AppendError> {
+        if self.x_mode != XMode::Index {
+            return Err(AppendError::WrongMode);
+        }
+        let index = self.points.len();
+        let point = Point::new(index as f64, y);
+        self.points.push(point);
+        self.update_bounds(point);
+        Ok(index)
+    }
+
+    /// Append a point with explicit X value.
+    pub fn push_point(&mut self, point: Point) -> Result<usize, AppendError> {
+        if self.x_mode != XMode::Explicit {
+            return Err(AppendError::WrongMode);
+        }
+        let index = self.points.len();
+        if let Some(last) = self.points.last()
+            && point.x < last.x
+        {
+            self.monotonic = false;
+            self.points.push(point);
+            self.update_bounds(point);
+            return Err(AppendError::NonMonotonicX);
+        }
+        self.points.push(point);
+        self.update_bounds(point);
+        Ok(index)
+    }
+
+    /// Access all points as a slice.
+    pub fn points(&self) -> &[Point] {
+        &self.points
+    }
+
+    /// Access a single point by index.
+    pub fn point(&self, index: usize) -> Option<Point> {
+        self.points.get(index).copied()
+    }
+
+    /// Number of points stored.
+    pub fn len(&self) -> usize {
+        self.points.len()
+    }
+
+    /// Check if there are no points.
+    pub fn is_empty(&self) -> bool {
+        self.points.is_empty()
+    }
+
+    /// Get the bounds for all points.
+    pub fn bounds(&self) -> Option<Viewport> {
+        self.bounds
+    }
+
+    /// Access the X mode.
+    pub fn x_mode(&self) -> XMode {
+        self.x_mode
+    }
+
+    /// Check whether explicit X values are monotonic.
+    pub fn is_monotonic(&self) -> bool {
+        self.monotonic
+    }
+
+    /// Find the index range that intersects the X range.
+    pub fn range_by_x(&self, range: Range) -> std::ops::Range<usize> {
+        if self.points.is_empty() {
+            return 0..0;
+        }
+        match self.x_mode {
+            XMode::Index => index_range(range, self.points.len()),
+            XMode::Explicit => {
+                if !self.monotonic {
+                    return 0..self.points.len();
+                }
+                let start = lower_bound(&self.points, range.min);
+                let end = upper_bound(&self.points, range.max);
+                start..end
+            }
+        }
+    }
+
+    fn update_bounds(&mut self, point: Point) {
+        match self.bounds {
+            None => {
+                self.bounds = Some(Viewport::new(
+                    Range::new(point.x, point.x),
+                    Range::new(point.y, point.y),
+                ));
+            }
+            Some(mut bounds) => {
+                bounds.x.expand_to_include(point.x);
+                bounds.y.expand_to_include(point.y);
+                self.bounds = Some(bounds);
+            }
+        }
+    }
+}
+
+fn index_range(range: Range, len: usize) -> std::ops::Range<usize> {
+    if len == 0 {
+        return 0..0;
+    }
+    let min = range.min.floor().max(0.0) as isize;
+    let max = range.max.ceil().max(0.0) as isize;
+    if max < 0 {
+        return 0..0;
+    }
+    let start = min.max(0) as usize;
+    let end = (max as usize).saturating_add(1).min(len);
+    start.min(end)..end
+}
+
+fn lower_bound(points: &[Point], target: f64) -> usize {
+    let mut left = 0;
+    let mut right = points.len();
+    while left < right {
+        let mid = (left + right) / 2;
+        if points[mid].x < target {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    left
+}
+
+fn upper_bound(points: &[Point], target: f64) -> usize {
+    let mut left = 0;
+    let mut right = points.len();
+    while left < right {
+        let mid = (left + right) / 2;
+        if points[mid].x <= target {
+            left = mid + 1;
+        } else {
+            right = mid;
+        }
+    }
+    left
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indexed_range_matches_indices() {
+        let data = AppendOnlyData::from_iter_y([1.0, 2.0, 3.0, 4.0]);
+        let range = data.range_by_x(Range::new(1.0, 2.1));
+        let slice = &data.points()[range];
+        assert_eq!(slice.len(), 2);
+        assert_eq!(slice[0].x, 1.0);
+        assert_eq!(slice[1].x, 2.0);
+    }
+
+    #[test]
+    fn explicit_range_uses_binary_search() {
+        let points = [
+            Point::new(0.0, 1.0),
+            Point::new(1.0, 2.0),
+            Point::new(2.0, 3.0),
+            Point::new(3.0, 4.0),
+        ];
+        let data = AppendOnlyData::from_iter_points(points);
+        let range = data.range_by_x(Range::new(0.5, 2.5));
+        let slice = &data.points()[range];
+        assert_eq!(slice.len(), 2);
+        assert_eq!(slice[0].x, 1.0);
+        assert_eq!(slice[1].x, 2.0);
+    }
+
+    #[test]
+    fn non_monotonic_explicit_marks_flag() {
+        let mut data = AppendOnlyData::explicit();
+        let _ = data.push_point(Point::new(1.0, 1.0));
+        let result = data.push_point(Point::new(0.5, 2.0));
+        assert_eq!(result, Err(AppendError::NonMonotonicX));
+        assert!(!data.is_monotonic());
+    }
+}
