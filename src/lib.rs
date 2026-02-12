@@ -3,8 +3,16 @@
 
 #![forbid(unsafe_code)]
 
+pub mod axis;
+pub mod geom;
 pub mod plot;
 pub mod style;
+pub mod transform;
+pub mod view;
 
+pub use axis::{AxisConfig, AxisFormatter, AxisScale};
+pub use geom::{Point, ScreenPoint, ScreenRect};
 pub use plot::{Plot, PlotBuilder};
 pub use style::Theme;
+pub use transform::Transform;
+pub use view::{Range, View, Viewport};
