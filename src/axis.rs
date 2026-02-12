@@ -11,7 +11,7 @@ pub enum AxisScale {
     Linear,
     /// Base-10 logarithmic scaling.
     Log10,
-    /// Time axis (mapped as linear values internally).
+    /// Time axis (mapped as linear seconds since Unix epoch internally).
     Time,
 }
 
@@ -92,6 +92,12 @@ pub struct AxisConfig {
     title: Option<String>,
     units: Option<String>,
     formatter: AxisFormatter,
+    tick_config: TickConfig,
+    show_grid: bool,
+    show_minor_grid: bool,
+    show_zero_line: bool,
+    show_border: bool,
+    label_size: f32,
 }
 
 impl AxisConfig {
@@ -102,6 +108,12 @@ impl AxisConfig {
             title: None,
             units: None,
             formatter: AxisFormatter::default(),
+            tick_config: TickConfig::default(),
+            show_grid: true,
+            show_minor_grid: false,
+            show_zero_line: false,
+            show_border: true,
+            label_size: 12.0,
         }
     }
 
@@ -149,6 +161,42 @@ impl AxisConfig {
         self
     }
 
+    /// Set the tick configuration.
+    pub fn with_tick_config(mut self, config: TickConfig) -> Self {
+        self.tick_config = config;
+        self
+    }
+
+    /// Enable or disable major grid lines.
+    pub fn with_grid(mut self, enabled: bool) -> Self {
+        self.show_grid = enabled;
+        self
+    }
+
+    /// Enable or disable minor grid lines.
+    pub fn with_minor_grid(mut self, enabled: bool) -> Self {
+        self.show_minor_grid = enabled;
+        self
+    }
+
+    /// Enable or disable the zero line.
+    pub fn with_zero_line(mut self, enabled: bool) -> Self {
+        self.show_zero_line = enabled;
+        self
+    }
+
+    /// Enable or disable the axis border.
+    pub fn with_border(mut self, enabled: bool) -> Self {
+        self.show_border = enabled;
+        self
+    }
+
+    /// Set the tick label font size.
+    pub fn with_label_size(mut self, size: f32) -> Self {
+        self.label_size = size;
+        self
+    }
+
     /// Access the axis title.
     pub fn title(&self) -> Option<&str> {
         self.title.as_deref()
@@ -163,12 +211,349 @@ impl AxisConfig {
     pub fn formatter(&self) -> &AxisFormatter {
         &self.formatter
     }
+
+    /// Format a value for display, using time formatting when appropriate.
+    pub fn format_value(&self, value: f64) -> String {
+        if self.scale == AxisScale::Time {
+            match &self.formatter {
+                AxisFormatter::Custom(formatter) => formatter(value),
+                AxisFormatter::Default => format_time_value(value),
+            }
+        } else {
+            self.formatter.format(value)
+        }
+    }
+
+    /// Access the tick configuration.
+    pub fn tick_config(&self) -> TickConfig {
+        self.tick_config
+    }
+
+    /// Check if major grid lines are enabled.
+    pub fn show_grid(&self) -> bool {
+        self.show_grid
+    }
+
+    /// Check if minor grid lines are enabled.
+    pub fn show_minor_grid(&self) -> bool {
+        self.show_minor_grid
+    }
+
+    /// Check if the zero line is enabled.
+    pub fn show_zero_line(&self) -> bool {
+        self.show_zero_line
+    }
+
+    /// Check if the axis border is enabled.
+    pub fn show_border(&self) -> bool {
+        self.show_border
+    }
+
+    /// Access the tick label font size.
+    pub fn label_size(&self) -> f32 {
+        self.label_size
+    }
 }
 
 impl Default for AxisConfig {
     fn default() -> Self {
         Self::linear()
     }
+}
+
+/// Tick generation configuration.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TickConfig {
+    /// Target pixel spacing between major ticks.
+    pub pixel_spacing: f32,
+    /// Number of minor ticks between major ticks.
+    pub minor_count: usize,
+}
+
+impl Default for TickConfig {
+    fn default() -> Self {
+        Self {
+            pixel_spacing: 80.0,
+            minor_count: 4,
+        }
+    }
+}
+
+/// Axis tick metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tick {
+    /// Tick value in data space.
+    pub value: f64,
+    /// Tick label.
+    pub label: String,
+    /// Whether the tick is a major tick.
+    pub is_major: bool,
+}
+
+/// Layout information for axis labels and ticks.
+#[derive(Debug, Clone)]
+pub struct AxisLayout {
+    /// Ticks to render.
+    pub ticks: Vec<Tick>,
+    /// Maximum tick label size (width, height).
+    pub max_label_size: (f32, f32),
+}
+
+impl Default for AxisLayout {
+    fn default() -> Self {
+        Self {
+            ticks: Vec::new(),
+            max_label_size: (0.0, 0.0),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct AxisLayoutKey {
+    range: Range,
+    pixels: u32,
+    scale: AxisScale,
+    tick_config: TickConfig,
+}
+
+/// Cached layout for axis ticks and labels.
+#[derive(Debug, Default, Clone)]
+pub struct AxisLayoutCache {
+    key: Option<AxisLayoutKey>,
+    layout: AxisLayout,
+}
+
+impl AxisLayoutCache {
+    /// Update the cache if inputs have changed.
+    pub fn update(
+        &mut self,
+        axis: &AxisConfig,
+        range: Range,
+        pixels: u32,
+        measurer: &impl TextMeasurer,
+    ) -> &AxisLayout {
+        let key = AxisLayoutKey {
+            range,
+            pixels,
+            scale: axis.scale(),
+            tick_config: axis.tick_config(),
+        };
+        if self.key.as_ref() == Some(&key) {
+            return &self.layout;
+        }
+
+        let ticks = generate_ticks(axis, range, pixels as f32);
+        let mut max_size = (0.0_f32, 0.0_f32);
+        for tick in &ticks {
+            if tick.label.is_empty() {
+                continue;
+            }
+            let (w, h) = measurer.measure(&tick.label, axis.label_size());
+            max_size.0 = max_size.0.max(w);
+            max_size.1 = max_size.1.max(h);
+        }
+
+        self.layout = AxisLayout {
+            ticks,
+            max_label_size: max_size,
+        };
+        self.key = Some(key);
+        &self.layout
+    }
+
+    /// Access the cached layout.
+    pub fn layout(&self) -> &AxisLayout {
+        &self.layout
+    }
+}
+
+/// Text measurement interface for layout.
+pub trait TextMeasurer {
+    /// Measure a text label at the given size.
+    fn measure(&self, text: &str, size: f32) -> (f32, f32);
+}
+
+/// Approximate text measurer for non-UI contexts.
+#[derive(Debug, Default, Clone)]
+pub struct ApproxTextMeasurer;
+
+impl TextMeasurer for ApproxTextMeasurer {
+    fn measure(&self, text: &str, size: f32) -> (f32, f32) {
+        let width = text.chars().count() as f32 * size * 0.6;
+        let height = size * 1.2;
+        (width, height)
+    }
+}
+
+/// Generate axis ticks for a range and pixel length.
+pub fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
+    if !range.is_valid() || pixel_length <= 0.0 {
+        return Vec::new();
+    }
+    match axis.scale() {
+        AxisScale::Linear => generate_linear_ticks(axis, range, pixel_length),
+        AxisScale::Log10 => generate_log_ticks(axis, range),
+        AxisScale::Time => generate_time_ticks(axis, range, pixel_length),
+    }
+}
+
+fn generate_linear_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
+    let target = (pixel_length / axis.tick_config().pixel_spacing).max(2.0);
+    let raw_step = range.span() / target as f64;
+    let step = nice_step(raw_step);
+    if !step.is_finite() || step <= 0.0 {
+        return Vec::new();
+    }
+
+    let minor_count = axis.tick_config().minor_count;
+    let minor_step = step / (minor_count as f64 + 1.0);
+
+    let mut ticks = Vec::new();
+    let mut value = (range.min / step).floor() * step;
+    if value == -0.0 {
+        value = 0.0;
+    }
+    let max_value = range.max + step * 0.5;
+
+    while value <= max_value {
+        if value >= range.min - step * 0.5 {
+            ticks.push(Tick {
+                value,
+                label: axis.format_value(value),
+                is_major: true,
+            });
+        }
+        for i in 1..=minor_count {
+            let minor = value + minor_step * i as f64;
+            if minor >= range.min && minor <= range.max {
+                ticks.push(Tick {
+                    value: minor,
+                    label: String::new(),
+                    is_major: false,
+                });
+            }
+        }
+        value += step;
+    }
+
+    ticks
+}
+
+fn generate_log_ticks(axis: &AxisConfig, range: Range) -> Vec<Tick> {
+    if !axis.scale().is_range_valid(range) {
+        return Vec::new();
+    }
+
+    let min_exp = range.min.log10().floor() as i32;
+    let max_exp = range.max.log10().ceil() as i32;
+    let mut ticks = Vec::new();
+
+    for exp in min_exp..=max_exp {
+        let base = 10_f64.powi(exp);
+        let major = base;
+        if major >= range.min && major <= range.max {
+            ticks.push(Tick {
+                value: major,
+                label: axis.format_value(major),
+                is_major: true,
+            });
+        }
+        if axis.tick_config().minor_count > 0 {
+            for m in 2..=9 {
+                let minor = base * m as f64;
+                if minor >= range.min && minor <= range.max {
+                    ticks.push(Tick {
+                        value: minor,
+                        label: String::new(),
+                        is_major: false,
+                    });
+                }
+            }
+        }
+    }
+
+    ticks
+}
+
+fn generate_time_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
+    let target = (pixel_length / axis.tick_config().pixel_spacing).max(2.0);
+    let raw_step = range.span() / target as f64;
+    let step = choose_time_step(raw_step);
+    if step <= 0.0 {
+        return Vec::new();
+    }
+
+    let mut ticks = Vec::new();
+    let mut value = (range.min / step).floor() * step;
+    let max_value = range.max + step * 0.5;
+
+    while value <= max_value {
+        if value >= range.min - step * 0.5 {
+            ticks.push(Tick {
+                value,
+                label: axis.format_value(value),
+                is_major: true,
+            });
+        }
+        value += step;
+    }
+
+    ticks
+}
+
+fn nice_step(step: f64) -> f64 {
+    if step <= 0.0 {
+        return 0.0;
+    }
+    let exp = step.log10().floor();
+    let base = 10_f64.powf(exp);
+    let fraction = step / base;
+    let nice = if fraction <= 1.0 {
+        1.0
+    } else if fraction <= 2.0 {
+        2.0
+    } else if fraction <= 5.0 {
+        5.0
+    } else {
+        10.0
+    };
+    nice * base
+}
+
+fn choose_time_step(step: f64) -> f64 {
+    const STEPS: &[f64] = &[
+        1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0, 7200.0,
+        21600.0, 43200.0, 86400.0, 172800.0, 604800.0,
+    ];
+    for candidate in STEPS {
+        if *candidate >= step {
+            return *candidate;
+        }
+    }
+    STEPS.last().copied().unwrap_or(step)
+}
+
+#[cfg(feature = "time")]
+fn format_time_value(value: f64) -> String {
+    use time::OffsetDateTime;
+    use time::UtcOffset;
+    use time::format_description::well_known::Rfc3339;
+
+    let secs = value.floor() as i64;
+    let nanos = ((value.fract()) * 1_000_000_000.0) as i64;
+    let dt = OffsetDateTime::from_unix_timestamp(secs)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
+        .replace_nanosecond(nanos as u32)
+        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+    dt.to_offset(offset)
+        .format(&Rfc3339)
+        .unwrap_or_else(|_| value.to_string())
+}
+
+#[cfg(not(feature = "time"))]
+fn format_time_value(value: f64) -> String {
+    format!("{value:.3}")
 }
 
 #[cfg(test)]
@@ -190,5 +575,22 @@ mod tests {
         let mapped = scale.map_value(value).unwrap();
         let roundtrip = scale.invert_value(mapped).unwrap();
         assert!((roundtrip - value).abs() < 1e-9);
+    }
+
+    #[test]
+    fn linear_ticks_generate_major() {
+        let axis = AxisConfig::linear();
+        let ticks = generate_ticks(&axis, Range::new(0.0, 10.0), 400.0);
+        assert!(ticks.iter().any(|tick| tick.is_major));
+    }
+
+    #[test]
+    fn log_ticks_generate_decades() {
+        let axis = AxisConfig::log10();
+        let ticks = generate_ticks(&axis, Range::new(1.0, 1000.0), 400.0);
+        let has_ten = ticks
+            .iter()
+            .any(|tick| (tick.value - 10.0).abs() < 1e-9 && tick.is_major);
+        assert!(has_ten);
     }
 }

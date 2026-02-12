@@ -12,7 +12,10 @@ pub mod style;
 pub mod transform;
 pub mod view;
 
-pub use axis::{AxisConfig, AxisFormatter, AxisScale};
+pub use axis::{
+    ApproxTextMeasurer, AxisConfig, AxisFormatter, AxisLayout, AxisLayoutCache, AxisScale,
+    TextMeasurer, Tick, TickConfig, generate_ticks,
+};
 pub use datasource::{AppendError, AppendOnlyData, DecimationScratch, SeriesStore, XMode};
 pub use geom::{Point, ScreenPoint, ScreenRect};
 pub use plot::{Plot, PlotBuilder};
