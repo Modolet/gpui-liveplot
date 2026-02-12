@@ -42,6 +42,11 @@ impl Plot {
         &self.theme
     }
 
+    /// Set the plot theme.
+    pub fn set_theme(&mut self, theme: Theme) {
+        self.theme = theme;
+    }
+
     /// Access the X axis configuration.
     pub fn x_axis(&self) -> &AxisConfig {
         &self.x_axis

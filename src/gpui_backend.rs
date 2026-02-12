@@ -34,17 +34,6 @@ use crate::view::{Range, Viewport};
 const AXIS_PADDING: f32 = 6.0;
 const TICK_LENGTH_MAJOR: f32 = 6.0;
 const TICK_LENGTH_MINOR: f32 = 3.0;
-const GRID_MAJOR_COLOR: Color = Color::new(0.86, 0.86, 0.86, 1.0);
-const GRID_MINOR_COLOR: Color = Color::new(0.93, 0.93, 0.93, 1.0);
-const AXIS_COLOR: Color = Color::new(0.2, 0.2, 0.2, 1.0);
-const HOVER_BG: Color = Color::new(1.0, 1.0, 1.0, 0.9);
-const HOVER_BORDER: Color = Color::new(0.2, 0.2, 0.2, 0.8);
-const PIN_BG: Color = Color::new(1.0, 1.0, 1.0, 0.92);
-const PIN_BORDER: Color = Color::new(0.2, 0.2, 0.2, 0.8);
-const SELECTION_FILL: Color = Color::new(0.1, 0.4, 0.9, 0.15);
-const SELECTION_BORDER: Color = Color::new(0.1, 0.4, 0.9, 0.9);
-const LEGEND_BG: Color = Color::new(1.0, 1.0, 1.0, 0.85);
-const LEGEND_BORDER: Color = Color::new(0.2, 0.2, 0.2, 0.6);
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -349,10 +338,11 @@ impl Render for GpuiPlotView {
         let plot = Arc::clone(&self.plot);
         let state = Arc::clone(&self.state);
         let config = self.config.clone();
+        let theme = plot.read().expect("plot lock").theme().clone();
 
         div()
             .size_full()
-            .bg(gpui::white())
+            .bg(to_hsla(theme.background))
             .child(
                 canvas(
                     move |bounds, window, _| {
@@ -623,7 +613,7 @@ fn build_frame(
             plot_rect,
         );
         build_series(&mut render, plot, state, &transform, plot_rect);
-        build_selection(&mut render, state);
+        build_selection(&mut render, plot, state);
         build_pins(&mut render, plot, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
@@ -660,7 +650,7 @@ fn build_frame(
             position: pos,
             text: message.to_string(),
             style: TextStyle {
-                color: AXIS_COLOR,
+                color: plot.theme().axis,
                 size: 14.0,
             },
         });
@@ -677,6 +667,7 @@ fn build_grid(
     transform: &Transform,
     plot_rect: ScreenRect,
 ) {
+    let theme = plot.theme();
     let mut major = Vec::new();
     let mut minor = Vec::new();
 
@@ -721,7 +712,7 @@ fn build_grid(
         render.push(RenderCommand::LineSegments {
             segments: minor,
             style: LineStyle {
-                color: GRID_MINOR_COLOR,
+                color: theme.grid_minor,
                 width: 1.0,
             },
         });
@@ -730,7 +721,7 @@ fn build_grid(
         render.push(RenderCommand::LineSegments {
             segments: major,
             style: LineStyle {
-                color: GRID_MAJOR_COLOR,
+                color: theme.grid_major,
                 width: 1.0,
             },
         });
@@ -748,7 +739,7 @@ fn build_grid(
                         ScreenPoint::new(plot_rect.max.x, y),
                     )],
                     style: LineStyle {
-                        color: AXIS_COLOR,
+                        color: theme.axis,
                         width: 1.0,
                     },
                 });
@@ -768,7 +759,7 @@ fn build_grid(
                         ScreenPoint::new(x, plot_rect.max.y),
                     )],
                     style: LineStyle {
-                        color: AXIS_COLOR,
+                        color: theme.axis,
                         width: 1.0,
                     },
                 });
@@ -844,14 +835,14 @@ fn build_series(
     render.push(RenderCommand::ClipEnd);
 }
 
-fn build_selection(render: &mut RenderList, state: &PlotUiState) {
+fn build_selection(render: &mut RenderList, plot: &Plot, state: &PlotUiState) {
     if let Some(rect) = state.selection_rect {
         let rect = normalized_rect(rect);
         render.push(RenderCommand::Rect {
             rect,
             style: RectStyle {
-                fill: SELECTION_FILL,
-                stroke: SELECTION_BORDER,
+                fill: plot.theme().selection_fill,
+                stroke: plot.theme().selection_border,
                 stroke_width: 1.0,
             },
         });
@@ -869,6 +860,7 @@ fn build_pins(
         return;
     }
 
+    let theme = plot.theme();
     let font_size = 12.0;
     let line_height = 14.0;
     render.push(RenderCommand::ClipRect(plot_rect));
@@ -908,8 +900,8 @@ fn build_pins(
                 ScreenPoint::new(origin.x + size.0, origin.y + size.1),
             ),
             style: RectStyle {
-                fill: PIN_BG,
-                stroke: PIN_BORDER,
+                fill: theme.pin_bg,
+                stroke: theme.pin_border,
                 stroke_width: 1.0,
             },
         });
@@ -920,7 +912,7 @@ fn build_pins(
                 position: ScreenPoint::new(origin.x + 4.0, line_y),
                 text: line.to_string(),
                 style: TextStyle {
-                    color: AXIS_COLOR,
+                    color: theme.axis,
                     size: font_size,
                 },
             });
@@ -959,6 +951,7 @@ fn build_axes(
     _y_axis_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
+    let theme = plot.theme();
     let mut ticks_major = Vec::new();
     let mut ticks_minor = Vec::new();
 
@@ -967,7 +960,7 @@ fn build_axes(
             rect: plot_rect,
             style: RectStyle {
                 fill: Color::new(0.0, 0.0, 0.0, 0.0),
-                stroke: AXIS_COLOR,
+                stroke: theme.axis,
                 stroke_width: 1.0,
             },
         });
@@ -1009,7 +1002,7 @@ fn build_axes(
                         position: pos,
                         text: tick.label.clone(),
                         style: TextStyle {
-                            color: AXIS_COLOR,
+                            color: theme.axis,
                             size: plot.x_axis().label_size(),
                         },
                     });
@@ -1047,7 +1040,7 @@ fn build_axes(
                         position: pos,
                         text: tick.label.clone(),
                         style: TextStyle {
-                            color: AXIS_COLOR,
+                            color: theme.axis,
                             size: plot.y_axis().label_size(),
                         },
                     });
@@ -1060,7 +1053,7 @@ fn build_axes(
         render.push(RenderCommand::LineSegments {
             segments: ticks_minor,
             style: LineStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 width: 1.0,
             },
         });
@@ -1069,7 +1062,7 @@ fn build_axes(
         render.push(RenderCommand::LineSegments {
             segments: ticks_major,
             style: LineStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 width: 1.0,
             },
         });
@@ -1084,6 +1077,7 @@ fn build_axis_titles(
     y_axis_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
+    let theme = plot.theme();
     if let Some(title) = axis_title_text(plot.x_axis()) {
         let size = measurer.measure(&title, plot.x_axis().label_size());
         let pos = ScreenPoint::new(
@@ -1094,7 +1088,7 @@ fn build_axis_titles(
             position: pos,
             text: title,
             style: TextStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 size: plot.x_axis().label_size(),
             },
         });
@@ -1109,7 +1103,7 @@ fn build_axis_titles(
             position: pos,
             text: title,
             style: TextStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 size: plot.y_axis().label_size(),
             },
         });
@@ -1124,6 +1118,7 @@ fn build_hover(
     plot_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
+    let theme = plot.theme();
     let Some(cursor) = state.hover else { return };
     if cursor.x < plot_rect.min.x
         || cursor.x > plot_rect.max.x
@@ -1156,8 +1151,8 @@ fn build_hover(
             ScreenPoint::new(origin.x + size.0, origin.y + size.1),
         ),
         style: RectStyle {
-            fill: HOVER_BG,
-            stroke: HOVER_BORDER,
+            fill: theme.hover_bg,
+            stroke: theme.hover_border,
             stroke_width: 1.0,
         },
     });
@@ -1168,7 +1163,7 @@ fn build_hover(
             position: ScreenPoint::new(origin.x + 4.0, line_y),
             text: line.to_string(),
             style: TextStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 size: 12.0,
             },
         });
@@ -1181,6 +1176,7 @@ fn build_legend(
     plot_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
+    let theme = plot.theme();
     let entries: Vec<_> = plot
         .series()
         .iter()
@@ -1213,8 +1209,8 @@ fn build_legend(
             ScreenPoint::new(origin.x + legend_width, origin.y + legend_height),
         ),
         style: RectStyle {
-            fill: LEGEND_BG,
-            stroke: LEGEND_BORDER,
+            fill: theme.legend_bg,
+            stroke: theme.legend_border,
             stroke_width: 1.0,
         },
     });
@@ -1234,7 +1230,7 @@ fn build_legend(
             position: ScreenPoint::new(origin.x + padding + 22.0, y),
             text: (*name).to_string(),
             style: TextStyle {
-                color: AXIS_COLOR,
+                color: theme.axis,
                 size: font_size,
             },
         });
