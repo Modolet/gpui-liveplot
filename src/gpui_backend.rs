@@ -29,6 +29,7 @@ use crate::render::{
     RenderCommand, RenderList, TextStyle, build_line_segments, build_scatter_points,
 };
 use crate::series::{Series, SeriesId, SeriesKind};
+use crate::style::Theme;
 use crate::transform::Transform;
 use crate::view::{Range, Viewport};
 
@@ -42,6 +43,7 @@ const PIN_UNPIN_HIGHLIGHT: Color = Color::new(0.95, 0.25, 0.25, 1.0);
 const PIN_LABEL_OFFSET: f32 = 10.0;
 const MAX_PIN_LABELS: usize = 12;
 const MAX_PIN_LABEL_COVERAGE: f32 = 0.35;
+const PIN_CLUSTER_RADIUS: f32 = 20.0;
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -965,43 +967,62 @@ fn build_pins(
     if !dense {
         let mut placed: Vec<ScreenRect> = Vec::new();
         for (screen, label, size) in labels {
-            let mut placed_rect = None;
-            for origin in pin_label_candidates(screen, size, PIN_LABEL_OFFSET) {
-                let origin = clamp_point(origin, plot_rect, size);
-                let rect = ScreenRect::new(
+            if let Some((origin, rect)) =
+                place_label(screen, size, plot_rect, PIN_LABEL_OFFSET, &placed)
+            {
+                placed.push(rect);
+                push_label_with_leader(
+                    render,
+                    rect,
                     origin,
-                    ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+                    screen,
+                    &label,
+                    font_size,
+                    line_height,
+                    theme,
                 );
-                if !rect_intersects_any(rect, &placed) {
-                    placed_rect = Some((origin, rect));
+            }
+        }
+    } else {
+        let mut clusters: Vec<(ScreenPoint, usize)> = Vec::new();
+        for (screen, _, _) in &labels {
+            let mut assigned = false;
+            for (center, count) in clusters.iter_mut() {
+                if distance_sq(*center, *screen) <= PIN_CLUSTER_RADIUS * PIN_CLUSTER_RADIUS {
+                    let total = *count as f32 + 1.0;
+                    center.x = (center.x * *count as f32 + screen.x) / total;
+                    center.y = (center.y * *count as f32 + screen.y) / total;
+                    *count += 1;
+                    assigned = true;
                     break;
                 }
             }
+            if !assigned {
+                clusters.push((*screen, 1));
+            }
+        }
 
-            let Some((origin, rect)) = placed_rect else {
+        let mut placed: Vec<ScreenRect> = Vec::new();
+        for (center, count) in clusters {
+            if count < 2 {
                 continue;
-            };
-            placed.push(rect);
-
-            render.push(RenderCommand::Rect {
-                rect,
-                style: RectStyle {
-                    fill: theme.pin_bg,
-                    stroke: theme.pin_border,
-                    stroke_width: 1.0,
-                },
-            });
-
-            for (index, line) in label.lines().enumerate() {
-                let line_y = origin.y + index as f32 * line_height + 2.0;
-                render.push(RenderCommand::Text {
-                    position: ScreenPoint::new(origin.x + 4.0, line_y),
-                    text: line.to_string(),
-                    style: TextStyle {
-                        color: theme.axis,
-                        size: font_size,
-                    },
-                });
+            }
+            let label = format!("{count} pins");
+            let size = measurer.measure_multiline(&label, font_size);
+            if let Some((origin, rect)) =
+                place_label(center, size, plot_rect, PIN_LABEL_OFFSET, &placed)
+            {
+                placed.push(rect);
+                push_label_with_leader(
+                    render,
+                    rect,
+                    origin,
+                    center,
+                    &label,
+                    font_size,
+                    line_height,
+                    theme,
+                );
             }
         }
     }
@@ -1655,6 +1676,68 @@ fn rect_intersects(a: ScreenRect, b: ScreenRect) -> bool {
 
 fn rect_intersects_any(rect: ScreenRect, others: &[ScreenRect]) -> bool {
     others.iter().any(|other| rect_intersects(rect, *other))
+}
+
+fn place_label(
+    screen: ScreenPoint,
+    size: (f32, f32),
+    plot_rect: ScreenRect,
+    offset: f32,
+    placed: &[ScreenRect],
+) -> Option<(ScreenPoint, ScreenRect)> {
+    for origin in pin_label_candidates(screen, size, offset) {
+        let origin = clamp_point(origin, plot_rect, size);
+        let rect = ScreenRect::new(
+            origin,
+            ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+        );
+        if !rect_intersects_any(rect, placed) {
+            return Some((origin, rect));
+        }
+    }
+    None
+}
+
+fn push_label_with_leader(
+    render: &mut RenderList,
+    rect: ScreenRect,
+    origin: ScreenPoint,
+    screen: ScreenPoint,
+    label: &str,
+    font_size: f32,
+    line_height: f32,
+    theme: &Theme,
+) {
+    let anchor = ScreenPoint::new(
+        screen.x.clamp(rect.min.x, rect.max.x),
+        screen.y.clamp(rect.min.y, rect.max.y),
+    );
+    render.push(RenderCommand::LineSegments {
+        segments: vec![LineSegment::new(screen, anchor)],
+        style: LineStyle {
+            color: theme.pin_border,
+            width: 1.0,
+        },
+    });
+    render.push(RenderCommand::Rect {
+        rect,
+        style: RectStyle {
+            fill: theme.pin_bg,
+            stroke: theme.pin_border,
+            stroke_width: 1.0,
+        },
+    });
+    for (index, line) in label.lines().enumerate() {
+        let line_y = origin.y + index as f32 * line_height + 2.0;
+        render.push(RenderCommand::Text {
+            position: ScreenPoint::new(origin.x + 4.0, line_y),
+            text: line.to_string(),
+            style: TextStyle {
+                color: theme.axis,
+                size: font_size,
+            },
+        });
+    }
 }
 
 fn hover_target_within_threshold(
