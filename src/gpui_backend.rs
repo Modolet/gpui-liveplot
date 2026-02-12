@@ -44,6 +44,15 @@ const PIN_LABEL_OFFSET: f32 = 10.0;
 const MAX_PIN_LABELS: usize = 12;
 const MAX_PIN_LABEL_COVERAGE: f32 = 0.35;
 const PIN_CLUSTER_RADIUS: f32 = 40.0;
+const LEGEND_FONT_SIZE: f32 = 12.0;
+const LEGEND_LINE_HEIGHT: f32 = 16.0;
+const LEGEND_PADDING: f32 = 6.0;
+const LEGEND_TOGGLE_SIZE: f32 = 10.0;
+const LEGEND_TOGGLE_GAP: f32 = 6.0;
+const LEGEND_SWATCH_WIDTH: f32 = 16.0;
+const LEGEND_SWATCH_GAP: f32 = 6.0;
+const LEGEND_HIDDEN_ALPHA: f32 = 0.35;
+const LEGEND_TEXT_HIDDEN_ALPHA: f32 = 0.45;
 
 /// Configuration for the GPUI plot view.
 #[derive(Debug, Clone)]
@@ -115,9 +124,28 @@ impl GpuiPlotView {
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
         let pos = screen_point(ev.position);
         let mut state = self.state.write().expect("plot state lock");
-        let region = state.regions.hit_test(pos);
         state.last_cursor = Some(pos);
 
+        if let Some(series_id) = state.legend_hit(pos) {
+            if ev.button == MouseButton::Left && ev.click_count == 1 {
+                if let Ok(mut plot) = self.plot.write() {
+                    if let Some(series) = plot
+                        .series_mut()
+                        .iter_mut()
+                        .find(|series| series.id() == series_id)
+                    {
+                        series.set_visible(!series.is_visible());
+                    }
+                }
+            }
+            state.clear_interaction();
+            state.hover = None;
+            state.hover_target = None;
+            cx.notify();
+            return;
+        }
+
+        let region = state.regions.hit_test(pos);
         if ev.button == MouseButton::Left && ev.click_count >= 2 && region == HitRegion::Plot {
             let last_toggle = state.last_pin_toggle.take();
             if let Ok(mut plot) = self.plot.write() {
@@ -166,7 +194,9 @@ impl GpuiPlotView {
         let mut state = self.state.write().expect("plot state lock");
         state.last_cursor = Some(pos);
 
-        if state.regions.hit_test(pos) == HitRegion::Plot {
+        if state.legend_hit(pos).is_some() {
+            state.hover = None;
+        } else if state.regions.hit_test(pos) == HitRegion::Plot {
             state.hover = Some(pos);
         } else {
             state.hover = None;
@@ -314,6 +344,9 @@ impl GpuiPlotView {
     fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &Window, cx: &mut Context<Self>) {
         let pos = screen_point(ev.position);
         let mut state = self.state.write().expect("plot state lock");
+        if state.legend_hit(pos).is_some() {
+            return;
+        }
         let region = state.regions.hit_test(pos);
         let Some(transform) = state.transform.clone() else {
             return;
@@ -489,6 +522,18 @@ struct SeriesCache {
 }
 
 #[derive(Debug, Clone)]
+struct LegendEntry {
+    series_id: SeriesId,
+    row_rect: ScreenRect,
+}
+
+#[derive(Debug, Clone)]
+struct LegendLayout {
+    rect: ScreenRect,
+    entries: Vec<LegendEntry>,
+}
+
+#[derive(Debug, Clone)]
 struct PlotUiState {
     x_layout: AxisLayoutCache,
     y_layout: AxisLayoutCache,
@@ -505,6 +550,7 @@ struct PlotUiState {
     last_cursor: Option<ScreenPoint>,
     decimation_scratch: DecimationScratch,
     series_cache: HashMap<SeriesId, SeriesCache>,
+    legend_layout: Option<LegendLayout>,
 }
 
 impl Default for PlotUiState {
@@ -529,6 +575,7 @@ impl Default for PlotUiState {
             last_cursor: None,
             decimation_scratch: DecimationScratch::new(),
             series_cache: HashMap::new(),
+            legend_layout: None,
         }
     }
 }
@@ -538,6 +585,19 @@ impl PlotUiState {
         self.drag = None;
         self.pending_click = None;
         self.selection_rect = None;
+    }
+
+    fn legend_hit(&self, point: ScreenPoint) -> Option<SeriesId> {
+        let layout = self.legend_layout.as_ref()?;
+        if !rect_contains(layout.rect, point) {
+            return None;
+        }
+        for entry in &layout.entries {
+            if rect_contains(entry.row_rect, point) {
+                return Some(entry.series_id);
+            }
+        }
+        None
     }
 }
 
@@ -673,7 +733,9 @@ fn build_frame(
             build_hover(&mut render, plot, state, &transform, plot_rect, &measurer);
         }
         if config.show_legend {
-            build_legend(&mut render, plot, plot_rect, &measurer);
+            build_legend(&mut render, plot, state, plot_rect, &measurer);
+        } else {
+            state.legend_layout = None;
         }
         build_axis_titles(
             &mut render,
@@ -684,6 +746,7 @@ fn build_frame(
             &measurer,
         );
     } else {
+        state.legend_layout = None;
         let message = "Invalid axis range";
         let size = measurer.measure(message, 14.0);
         let pos = ScreenPoint::new(
@@ -918,6 +981,9 @@ fn build_pins(
         else {
             continue;
         };
+        if !series.is_visible() {
+            continue;
+        }
         let Some(point) = series.data().data().point(pin.point_index) else {
             continue;
         };
@@ -1425,41 +1491,42 @@ fn build_hover(
 fn build_legend(
     render: &mut RenderList,
     plot: &Plot,
+    state: &mut PlotUiState,
     plot_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
     let theme = plot.theme();
-    let entries: Vec<_> = plot
-        .series()
-        .iter()
-        .filter(|series| series.is_visible())
-        .map(|series| (series.name(), series_color(series)))
-        .collect();
-    if entries.is_empty() {
+    let series_list = plot.series();
+    if series_list.is_empty() {
+        state.legend_layout = None;
         return;
     }
 
-    let font_size = 12.0;
-    let line_height = 16.0;
-    let padding = 6.0;
+    let font_size = LEGEND_FONT_SIZE;
+    let line_height = LEGEND_LINE_HEIGHT;
+    let padding = LEGEND_PADDING;
+    let text_start_x =
+        padding + LEGEND_TOGGLE_SIZE + LEGEND_TOGGLE_GAP + LEGEND_SWATCH_WIDTH + LEGEND_SWATCH_GAP;
     let mut max_width: f32 = 0.0;
-    for (name, _) in &entries {
-        let size = measurer.measure(name, font_size);
+    for series in series_list {
+        let size = measurer.measure(series.name(), font_size);
         max_width = max_width.max(size.0);
     }
-    let legend_width = max_width + padding * 3.0 + 20.0;
-    let legend_height = entries.len() as f32 * line_height + padding * 2.0;
+    let legend_width = text_start_x + max_width + padding;
+    let legend_height = series_list.len() as f32 * line_height + padding * 2.0;
 
-    let origin = ScreenPoint::new(
+    let mut origin = ScreenPoint::new(
         plot_rect.max.x - legend_width - padding,
         plot_rect.min.y + padding,
     );
+    origin = clamp_point(origin, plot_rect, (legend_width, legend_height));
+    let legend_rect = ScreenRect::new(
+        origin,
+        ScreenPoint::new(origin.x + legend_width, origin.y + legend_height),
+    );
 
     render.push(RenderCommand::Rect {
-        rect: ScreenRect::new(
-            origin,
-            ScreenPoint::new(origin.x + legend_width, origin.y + legend_height),
-        ),
+        rect: legend_rect,
         style: RectStyle {
             fill: theme.legend_bg,
             stroke: theme.legend_border,
@@ -1467,26 +1534,84 @@ fn build_legend(
         },
     });
 
-    for (idx, (name, color)) in entries.iter().enumerate() {
-        let y = origin.y + padding + idx as f32 * line_height + 2.0;
-        let swatch_start = ScreenPoint::new(origin.x + padding, y + 6.0);
-        let swatch_end = ScreenPoint::new(origin.x + padding + 16.0, y + 6.0);
+    let mut entries = Vec::with_capacity(series_list.len());
+    for (idx, series) in series_list.iter().enumerate() {
+        let row_y = origin.y + padding + idx as f32 * line_height;
+        let row_rect = ScreenRect::new(
+            ScreenPoint::new(origin.x, row_y),
+            ScreenPoint::new(origin.x + legend_width, row_y + line_height),
+        );
+        let row_center_y = row_y + line_height * 0.5;
+        let toggle_origin =
+            ScreenPoint::new(origin.x + padding, row_center_y - LEGEND_TOGGLE_SIZE * 0.5);
+        let toggle_rect = ScreenRect::new(
+            toggle_origin,
+            ScreenPoint::new(
+                toggle_origin.x + LEGEND_TOGGLE_SIZE,
+                toggle_origin.y + LEGEND_TOGGLE_SIZE,
+            ),
+        );
+        entries.push(LegendEntry {
+            series_id: series.id(),
+            row_rect,
+        });
+
+        let visible = series.is_visible();
+        let series_color = series_color(series);
+        let swatch_color = if visible {
+            series_color
+        } else {
+            with_alpha(series_color, LEGEND_HIDDEN_ALPHA)
+        };
+        let text_color = if visible {
+            theme.axis
+        } else {
+            with_alpha(theme.axis, LEGEND_TEXT_HIDDEN_ALPHA)
+        };
+        let toggle_fill = if visible {
+            with_alpha(series_color, 0.85)
+        } else {
+            Color::new(0.0, 0.0, 0.0, 0.0)
+        };
+        let toggle_stroke = if visible {
+            theme.axis
+        } else {
+            with_alpha(theme.axis, LEGEND_TEXT_HIDDEN_ALPHA)
+        };
+
+        render.push(RenderCommand::Rect {
+            rect: toggle_rect,
+            style: RectStyle {
+                fill: toggle_fill,
+                stroke: toggle_stroke,
+                stroke_width: 1.0,
+            },
+        });
+
+        let swatch_start = ScreenPoint::new(toggle_rect.max.x + LEGEND_TOGGLE_GAP, row_center_y);
+        let swatch_end = ScreenPoint::new(swatch_start.x + LEGEND_SWATCH_WIDTH, row_center_y);
         render.push(RenderCommand::LineSegments {
             segments: vec![LineSegment::new(swatch_start, swatch_end)],
             style: LineStyle {
-                color: *color,
+                color: swatch_color,
                 width: 2.0,
             },
         });
+        let text_y = row_y + (line_height - font_size) * 0.5;
         render.push(RenderCommand::Text {
-            position: ScreenPoint::new(origin.x + padding + 22.0, y),
-            text: (*name).to_string(),
+            position: ScreenPoint::new(swatch_end.x + LEGEND_SWATCH_GAP, text_y),
+            text: series.name().to_string(),
             style: TextStyle {
-                color: theme.axis,
+                color: text_color,
                 size: font_size,
             },
         });
     }
+
+    state.legend_layout = Some(LegendLayout {
+        rect: legend_rect,
+        entries,
+    });
 }
 
 fn paint_frame(frame: &PlotFrame, window: &mut Window, cx: &mut App) {
@@ -1688,10 +1813,21 @@ fn normalized_rect(rect: ScreenRect) -> ScreenRect {
     )
 }
 
+fn rect_contains(rect: ScreenRect, point: ScreenPoint) -> bool {
+    point.x >= rect.min.x && point.x <= rect.max.x && point.y >= rect.min.y && point.y <= rect.max.y
+}
+
 fn distance_sq(a: ScreenPoint, b: ScreenPoint) -> f32 {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
     dx * dx + dy * dy
+}
+
+fn with_alpha(color: Color, alpha: f32) -> Color {
+    Color {
+        a: (color.a * alpha).clamp(0.0, 1.0),
+        ..color
+    }
 }
 
 fn marker_style_and_size(series: &Series) -> (MarkerStyle, f32) {
@@ -2002,6 +2138,9 @@ fn pin_screen_point(
         .series()
         .iter()
         .find(|series| series.id() == pin.series_id)?;
+    if !series.is_visible() {
+        return None;
+    }
     let point = series.data().data().point(pin.point_index)?;
     transform.data_to_screen(point)
 }

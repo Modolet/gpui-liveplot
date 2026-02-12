@@ -97,6 +97,9 @@ impl Plot {
         let mut x_range: Option<Range> = None;
         let mut y_range: Option<Range> = None;
         for series in &self.series {
+            if !series.is_visible() {
+                continue;
+            }
             if let Some(bounds) = series.bounds() {
                 x_range = Some(match x_range {
                     None => bounds.x,

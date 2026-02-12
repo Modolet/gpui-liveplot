@@ -10,7 +10,7 @@ use gpui::{
 #[cfg(feature = "gpui")]
 use gpui_plot::{
     AxisConfig, Color, GpuiPlotView, LineStyle, MarkerShape, MarkerStyle, Plot, Series, SeriesKind,
-    Theme, View,
+    Theme,
 };
 
 #[cfg(feature = "gpui")]
@@ -30,7 +30,7 @@ fn main() {
                 .theme(Theme::dark())
                 .x_axis(AxisConfig::linear())
                 .y_axis(AxisConfig::linear())
-                .view(View::FollowLastN { points: 2000 })
+                // .view(View::FollowLastN { points: 2000 })
                 .build();
 
             let line_style = LineStyle {
