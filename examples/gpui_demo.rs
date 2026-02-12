@@ -8,7 +8,10 @@ use gpui::{
 };
 
 #[cfg(feature = "gpui")]
-use gpui_plot::{AxisConfig, GpuiPlotView, LineStyle, Plot, Series, SeriesKind, Theme, View};
+use gpui_plot::{
+    AxisConfig, Color, GpuiPlotView, LineStyle, MarkerShape, MarkerStyle, Plot, Series, SeriesKind,
+    Theme, View,
+};
 
 #[cfg(feature = "gpui")]
 fn main() {
@@ -30,12 +33,22 @@ fn main() {
                 .view(View::FollowLastN { points: 2000 })
                 .build();
 
+            let line_style = LineStyle {
+                color: Color::new(0.2, 0.8, 0.9, 1.0),
+                width: 2.0,
+            };
+            let scatter_style = MarkerStyle {
+                color: Color::new(0.95, 0.55, 0.2, 1.0),
+                size: 6.0,
+                shape: MarkerShape::Circle,
+            };
+
             let line = Series::from_iter_y(
                 "sensor",
                 (0..1000).map(|i| (i as f64 * 0.01).sin()),
-                SeriesKind::Line(LineStyle::default()),
+                SeriesKind::Line(line_style),
             );
-            let scatter = Series::scatter("events");
+            let scatter = Series::scatter("events").with_kind(SeriesKind::Scatter(scatter_style));
             plot.add_series(line);
             plot.add_series(scatter);
 
