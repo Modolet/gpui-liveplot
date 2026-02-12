@@ -1,6 +1,6 @@
 #[cfg(feature = "time")]
 fn main() {
-    use gpui_plot::{AxisConfig, LineStyle, Plot, Point, Series, SeriesKind};
+    use gpui_plot::{AxisConfig, LineStyle, Plot, Point, Series, SeriesKind, Theme};
     use time::{Duration, OffsetDateTime};
 
     let start = OffsetDateTime::now_utc();
@@ -12,7 +12,10 @@ fn main() {
     });
 
     let series = Series::from_iter_points("time", points, SeriesKind::Line(LineStyle::default()));
-    let mut plot = Plot::builder().x_axis(AxisConfig::time()).build();
+    let mut plot = Plot::builder()
+        .theme(Theme::dark())
+        .x_axis(AxisConfig::time())
+        .build();
     plot.add_series(series);
     plot.refresh_viewport(0.02, 1e-6);
 

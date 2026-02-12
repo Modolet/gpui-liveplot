@@ -32,7 +32,7 @@ pub struct Theme {
 }
 
 impl Theme {
-    /// Create the default theme (alias of [`Theme::light`]).
+    /// Create the default theme (alias of [`Theme::dark`]).
     pub fn new() -> Self {
         Self::default()
     }
@@ -76,6 +76,6 @@ impl Theme {
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::light()
+        Self::dark()
     }
 }

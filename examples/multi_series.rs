@@ -1,10 +1,11 @@
 use gpui_plot::{
     AxisConfig, DecimationScratch, LineStyle, MarkerStyle, Plot, Point, ScreenPoint, ScreenRect,
-    Series, SeriesKind, Transform,
+    Series, SeriesKind, Theme, Transform,
 };
 
 fn main() {
     let mut plot = Plot::builder()
+        .theme(Theme::dark())
         .x_axis(AxisConfig::linear())
         .y_axis(AxisConfig::log10())
         .build();

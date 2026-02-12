@@ -13,9 +13,9 @@
 ## 快速开始
 
 ```rust
-use gpui_plot::{LineStyle, Plot, Series, SeriesKind};
+use gpui_plot::{LineStyle, Plot, Series, SeriesKind, Theme};
 
-let mut plot = Plot::new();
+let mut plot = Plot::builder().theme(Theme::dark()).build();
 let series = Series::from_iter_y(
     "sensor",
     (0..1000).map(|i| (i as f64 * 0.01).sin()),

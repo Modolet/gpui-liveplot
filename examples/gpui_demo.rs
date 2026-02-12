@@ -8,7 +8,7 @@ use gpui::{
 };
 
 #[cfg(feature = "gpui")]
-use gpui_plot::{AxisConfig, GpuiPlotView, LineStyle, Plot, Series, SeriesKind, View};
+use gpui_plot::{AxisConfig, GpuiPlotView, LineStyle, Plot, Series, SeriesKind, Theme, View};
 
 #[cfg(feature = "gpui")]
 fn main() {
@@ -24,6 +24,7 @@ fn main() {
 
         cx.open_window(options, |window, cx| {
             let mut plot = Plot::builder()
+                .theme(Theme::dark())
                 .x_axis(AxisConfig::linear())
                 .y_axis(AxisConfig::linear())
                 .view(View::FollowLastN { points: 2000 })
