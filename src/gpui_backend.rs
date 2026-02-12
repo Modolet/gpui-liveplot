@@ -39,6 +39,8 @@ const GRID_MINOR_COLOR: Color = Color::new(0.93, 0.93, 0.93, 1.0);
 const AXIS_COLOR: Color = Color::new(0.2, 0.2, 0.2, 1.0);
 const HOVER_BG: Color = Color::new(1.0, 1.0, 1.0, 0.9);
 const HOVER_BORDER: Color = Color::new(0.2, 0.2, 0.2, 0.8);
+const PIN_BG: Color = Color::new(1.0, 1.0, 1.0, 0.92);
+const PIN_BORDER: Color = Color::new(0.2, 0.2, 0.2, 0.8);
 const SELECTION_FILL: Color = Color::new(0.1, 0.4, 0.9, 0.15);
 const SELECTION_BORDER: Color = Color::new(0.1, 0.4, 0.9, 0.9);
 const LEGEND_BG: Color = Color::new(1.0, 1.0, 1.0, 0.85);
@@ -592,7 +594,7 @@ fn build_frame(
         );
         build_series(&mut render, plot, state, &transform, plot_rect);
         build_selection(&mut render, state);
-        build_pins(&mut render, plot, &transform, plot_rect);
+        build_pins(&mut render, plot, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
             plot,
@@ -826,11 +828,19 @@ fn build_selection(render: &mut RenderList, state: &PlotUiState) {
     }
 }
 
-fn build_pins(render: &mut RenderList, plot: &Plot, transform: &Transform, plot_rect: ScreenRect) {
+fn build_pins(
+    render: &mut RenderList,
+    plot: &Plot,
+    transform: &Transform,
+    plot_rect: ScreenRect,
+    measurer: &GpuiTextMeasurer<'_>,
+) {
     if plot.pins().is_empty() {
         return;
     }
 
+    let font_size = 12.0;
+    let line_height = 14.0;
     render.push(RenderCommand::ClipRect(plot_rect));
 
     for pin in plot.pins() {
@@ -847,6 +857,44 @@ fn build_pins(render: &mut RenderList, plot: &Plot, transform: &Transform, plot_
         let Some(screen) = transform.data_to_screen(point) else {
             continue;
         };
+
+        let x_text = plot.x_axis().format_value(point.x);
+        let y_text = plot.y_axis().format_value(point.y);
+        let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
+        let size = measurer.measure_multiline(&label, font_size);
+
+        let mut origin = ScreenPoint::new(screen.x + 10.0, screen.y + 10.0);
+        if origin.x + size.0 > plot_rect.max.x {
+            origin.x = screen.x - size.0 - 10.0;
+        }
+        if origin.y + size.1 > plot_rect.max.y {
+            origin.y = screen.y - size.1 - 10.0;
+        }
+        origin = clamp_point(origin, plot_rect, size);
+
+        render.push(RenderCommand::Rect {
+            rect: ScreenRect::new(
+                origin,
+                ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+            ),
+            style: RectStyle {
+                fill: PIN_BG,
+                stroke: PIN_BORDER,
+                stroke_width: 1.0,
+            },
+        });
+
+        for (index, line) in label.lines().enumerate() {
+            let line_y = origin.y + index as f32 * line_height + 2.0;
+            render.push(RenderCommand::Text {
+                position: ScreenPoint::new(origin.x + 4.0, line_y),
+                text: line.to_string(),
+                style: TextStyle {
+                    color: AXIS_COLOR,
+                    size: font_size,
+                },
+            });
+        }
 
         let style = match series.kind() {
             SeriesKind::Line(line) => MarkerStyle {
