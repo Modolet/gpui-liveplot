@@ -1169,6 +1169,9 @@ fn build_axes(
     let theme = plot.theme();
     let mut ticks_major = Vec::new();
     let mut ticks_minor = Vec::new();
+    let label_gap = 2.0_f32;
+    let mut last_x_label_right = f32::NEG_INFINITY;
+    let mut last_y_label_top = f32::INFINITY;
 
     if plot.x_axis().show_border() {
         render.push(RenderCommand::Rect {
@@ -1207,14 +1210,19 @@ fn build_axes(
                     x - size.0 * 0.5,
                     plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
                 );
-                render.push(RenderCommand::Text {
-                    position: pos,
-                    text: tick.label.clone(),
-                    style: TextStyle {
-                        color: theme.axis,
-                        size: plot.x_axis().label_size(),
-                    },
-                });
+                let label_left = pos.x;
+                let label_right = pos.x + size.0;
+                if label_left >= last_x_label_right + label_gap {
+                    render.push(RenderCommand::Text {
+                        position: pos,
+                        text: tick.label.clone(),
+                        style: TextStyle {
+                            color: theme.axis,
+                            size: plot.x_axis().label_size(),
+                        },
+                    });
+                    last_x_label_right = label_right;
+                }
             }
         }
     }
@@ -1245,14 +1253,19 @@ fn build_axes(
                     plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
                     y - size.1 * 0.5,
                 );
-                render.push(RenderCommand::Text {
-                    position: pos,
-                    text: tick.label.clone(),
-                    style: TextStyle {
-                        color: theme.axis,
-                        size: plot.y_axis().label_size(),
-                    },
-                });
+                let label_top = pos.y;
+                let label_bottom = pos.y + size.1;
+                if label_bottom <= last_y_label_top - label_gap {
+                    render.push(RenderCommand::Text {
+                        position: pos,
+                        text: tick.label.clone(),
+                        style: TextStyle {
+                            color: theme.axis,
+                            size: plot.y_axis().label_size(),
+                        },
+                    });
+                    last_y_label_top = label_top;
+                }
             }
         }
     }
