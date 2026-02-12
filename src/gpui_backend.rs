@@ -1223,6 +1223,47 @@ fn build_hover(
             return;
         }
 
+        let (marker_style, base_size) = match series.kind() {
+            SeriesKind::Line(line) => (
+                MarkerStyle {
+                    color: line.color,
+                    size: 6.0,
+                    shape: MarkerShape::Circle,
+                },
+                6.0,
+            ),
+            SeriesKind::Scatter(marker) => (
+                MarkerStyle {
+                    color: marker.color,
+                    size: marker.size.max(6.0),
+                    shape: marker.shape,
+                },
+                marker.size.max(6.0),
+            ),
+        };
+        let ring_outer = base_size + PIN_RING_OUTER_PAD;
+        let ring_inner = base_size + PIN_RING_INNER_PAD;
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: theme.axis,
+                size: ring_outer,
+                shape: MarkerShape::Circle,
+            },
+        });
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: MarkerStyle {
+                color: theme.background,
+                size: ring_inner,
+                shape: MarkerShape::Circle,
+            },
+        });
+        render.push(RenderCommand::Points {
+            points: vec![screen],
+            style: marker_style,
+        });
+
         let x_text = plot.x_axis().format_value(point.x);
         let y_text = plot.y_axis().format_value(point.y);
         let label = format!("{}\nx: {x_text}\ny: {y_text}", series.name());
