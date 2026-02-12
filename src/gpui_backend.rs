@@ -117,6 +117,21 @@ impl GpuiPlotView {
         state.last_cursor = Some(pos);
 
         if ev.button == MouseButton::Left && ev.click_count >= 2 && region == HitRegion::Plot {
+            if let (Some(transform), Some(last_toggle)) =
+                (state.transform.clone(), state.last_pin_toggle.take())
+            {
+                if let Ok(mut plot) = self.plot.write() {
+                    let hit = find_nearest_point(
+                        plot.series(),
+                        &transform,
+                        pos,
+                        self.config.pin_threshold_px,
+                    );
+                    if hit.is_some_and(|hit| hit.pin == last_toggle.pin) {
+                        revert_pin_toggle(&mut plot, last_toggle);
+                    }
+                }
+            }
             if let Ok(mut plot) = self.plot.write() {
                 plot.reset_view();
             }
@@ -259,7 +274,8 @@ impl GpuiPlotView {
         let click = state.pending_click.take();
         let should_pin = click.as_ref().is_some_and(|click| {
             click.button == MouseButton::Left && click.region == HitRegion::Plot
-        }) && drag.as_ref().is_none_or(|drag| !drag.active);
+        }) && drag.as_ref().is_none_or(|drag| !drag.active)
+            && ev.click_count == 1;
 
         if should_pin {
             if let Some(transform) = state.transform.clone() {
@@ -271,10 +287,16 @@ impl GpuiPlotView {
                         self.config.pin_threshold_px,
                     );
                     if let Some(hit) = hit {
-                        toggle_pin(plot.pins_mut(), hit.pin);
+                        let added = toggle_pin(plot.pins_mut(), hit.pin);
+                        state.last_pin_toggle = Some(PinToggle {
+                            pin: hit.pin,
+                            added,
+                        });
                     }
                 }
             }
+        } else if ev.click_count > 1 {
+            state.last_pin_toggle = None;
         }
 
         state.drag = None;
@@ -430,6 +452,12 @@ struct ClickState {
     button: MouseButton,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PinToggle {
+    pin: crate::interaction::Pin,
+    added: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 struct SeriesCache {
     key: Option<RenderCacheKey>,
@@ -446,6 +474,7 @@ struct PlotUiState {
     viewport: Option<Viewport>,
     drag: Option<DragState>,
     pending_click: Option<ClickState>,
+    last_pin_toggle: Option<PinToggle>,
     selection_rect: Option<ScreenRect>,
     hover: Option<ScreenPoint>,
     last_cursor: Option<ScreenPoint>,
@@ -468,6 +497,7 @@ impl Default for PlotUiState {
             viewport: None,
             drag: None,
             pending_click: None,
+            last_pin_toggle: None,
             selection_rect: None,
             hover: None,
             last_cursor: None,
@@ -1432,6 +1462,17 @@ fn clamp_point(point: ScreenPoint, rect: ScreenRect, size: (f32, f32)) -> Screen
         y = rect.max.y - size.1;
     }
     ScreenPoint::new(x, y)
+}
+
+fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {
+    let pins = plot.pins_mut();
+    if toggle.added {
+        if let Some(index) = pins.iter().position(|pin| *pin == toggle.pin) {
+            pins.swap_remove(index);
+        }
+    } else if !pins.iter().any(|pin| *pin == toggle.pin) {
+        pins.push(toggle.pin);
+    }
 }
 
 fn axis_title_text(axis: &AxisConfig) -> Option<String> {
