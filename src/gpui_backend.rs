@@ -20,8 +20,8 @@ use crate::axis::{AxisConfig, AxisLayout, AxisLayoutCache, TextMeasurer};
 use crate::datasource::DecimationScratch;
 use crate::geom::{Point as DataPoint, ScreenPoint, ScreenRect};
 use crate::interaction::{
-    HitRegion, PlotRegions, find_nearest_point, pan_viewport, toggle_pin, zoom_factor_from_drag,
-    zoom_to_rect, zoom_viewport,
+    HitRegion, PlotRegions, pan_viewport, toggle_pin, zoom_factor_from_drag, zoom_to_rect,
+    zoom_viewport,
 };
 use crate::plot::Plot;
 use crate::render::{
@@ -47,6 +47,8 @@ pub struct PlotViewConfig {
     pub drag_threshold_px: f32,
     /// Pixel threshold for pin hit testing.
     pub pin_threshold_px: f32,
+    /// Pixel threshold for unpin hit testing.
+    pub unpin_threshold_px: f32,
     /// Padding fraction applied when auto-fitting data.
     pub padding_frac: f64,
     /// Minimum padding applied when auto-fitting data.
@@ -61,7 +63,8 @@ impl Default for PlotViewConfig {
     fn default() -> Self {
         Self {
             drag_threshold_px: 4.0,
-            pin_threshold_px: 10.0,
+            pin_threshold_px: 12.0,
+            unpin_threshold_px: 18.0,
             padding_frac: 0.05,
             min_padding: 1e-6,
             show_legend: true,
@@ -260,28 +263,36 @@ impl GpuiPlotView {
         }
 
         let click = state.pending_click.take();
-        let should_pin = click.as_ref().is_some_and(|click| {
+        let should_toggle = click.as_ref().is_some_and(|click| {
             click.button == MouseButton::Left && click.region == HitRegion::Plot
         }) && drag.as_ref().is_none_or(|drag| !drag.active)
             && ev.click_count == 1;
 
-        if should_pin {
+        if should_toggle {
             if let Some(transform) = state.transform.clone() {
                 if let Ok(mut plot) = self.plot.write() {
-                    let hit = find_nearest_point(
-                        plot.series(),
-                        &transform,
-                        pos,
-                        self.config.pin_threshold_px,
-                    );
-                    if let Some(hit) = hit {
-                        let added = toggle_pin(plot.pins_mut(), hit.pin);
+                    let target = state
+                        .hover_target
+                        .filter(|target| hover_target_within_threshold(target, pos, &self.config))
+                        .or_else(|| {
+                            compute_hover_target(
+                                &plot,
+                                &transform,
+                                pos,
+                                state.plot_rect,
+                                self.config.pin_threshold_px,
+                                self.config.unpin_threshold_px,
+                            )
+                        });
+
+                    if let Some(target) = target {
+                        let added = toggle_pin(plot.pins_mut(), target.pin);
                         let now = Instant::now();
                         state.last_pin_toggle = Some(PinToggle {
-                            pin: hit.pin,
+                            pin: target.pin,
                             added,
                             at: now,
-                            screen_pos: pos,
+                            screen_pos: target.screen,
                         });
                     }
                 }
@@ -452,6 +463,13 @@ struct PinToggle {
     screen_pos: ScreenPoint,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct HoverTarget {
+    pin: crate::interaction::Pin,
+    screen: ScreenPoint,
+    is_pinned: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 struct SeriesCache {
     key: Option<RenderCacheKey>,
@@ -469,6 +487,7 @@ struct PlotUiState {
     drag: Option<DragState>,
     pending_click: Option<ClickState>,
     last_pin_toggle: Option<PinToggle>,
+    hover_target: Option<HoverTarget>,
     selection_rect: Option<ScreenRect>,
     hover: Option<ScreenPoint>,
     last_cursor: Option<ScreenPoint>,
@@ -492,6 +511,7 @@ impl Default for PlotUiState {
             drag: None,
             pending_click: None,
             last_pin_toggle: None,
+            hover_target: None,
             selection_rect: None,
             hover: None,
             last_cursor: None,
@@ -618,6 +638,14 @@ fn build_frame(
         );
         build_series(&mut render, plot, state, &transform, plot_rect);
         build_selection(&mut render, plot, state);
+        update_hover_target(
+            plot,
+            state,
+            &transform,
+            plot_rect,
+            config.pin_threshold_px,
+            config.unpin_threshold_px,
+        );
         build_pins(&mut render, plot, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
@@ -630,15 +658,7 @@ fn build_frame(
             &measurer,
         );
         if config.show_hover {
-            build_hover(
-                &mut render,
-                plot,
-                state,
-                &transform,
-                plot_rect,
-                &measurer,
-                config.pin_threshold_px,
-            );
+            build_hover(&mut render, plot, state, &transform, plot_rect, &measurer);
         }
         if config.show_legend {
             build_legend(&mut render, plot, plot_rect, &measurer);
@@ -900,24 +920,7 @@ fn build_pins(
             continue;
         }
 
-        let (marker_style, base_size) = match series.kind() {
-            SeriesKind::Line(line) => (
-                MarkerStyle {
-                    color: line.color,
-                    size: 6.0,
-                    shape: MarkerShape::Circle,
-                },
-                6.0,
-            ),
-            SeriesKind::Scatter(marker) => (
-                MarkerStyle {
-                    color: marker.color,
-                    size: marker.size.max(6.0),
-                    shape: marker.shape,
-                },
-                marker.size.max(6.0),
-            ),
-        };
+        let (marker_style, base_size) = marker_style_and_size(series);
 
         let ring_outer = base_size + PIN_RING_OUTER_PAD;
         let ring_inner = base_size + PIN_RING_INNER_PAD;
@@ -1162,7 +1165,6 @@ fn build_hover(
     transform: &Transform,
     plot_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
-    pin_threshold: f32,
 ) {
     let theme = plot.theme();
     let Some(cursor) = state.hover else { return };
@@ -1174,21 +1176,18 @@ fn build_hover(
         return;
     }
 
-    if let Some(hit) = find_nearest_point(plot.series(), transform, cursor, pin_threshold) {
-        let is_pinned = plot.pins().iter().any(|pin| *pin == hit.pin);
+    if let Some(target) = state.hover_target {
         let Some(series) = plot
             .series()
             .iter()
-            .find(|series| series.id() == hit.pin.series_id)
+            .find(|series| series.id() == target.pin.series_id)
         else {
             return;
         };
-        let Some(point) = series.data().data().point(hit.pin.point_index) else {
+        let Some(point) = series.data().data().point(target.pin.point_index) else {
             return;
         };
-        let Some(screen) = transform.data_to_screen(point) else {
-            return;
-        };
+        let screen = target.screen;
         if screen.x < plot_rect.min.x
             || screen.x > plot_rect.max.x
             || screen.y < plot_rect.min.y
@@ -1197,11 +1196,8 @@ fn build_hover(
             return;
         }
 
-        if is_pinned {
-            let base_size = match series.kind() {
-                SeriesKind::Line(_) => 6.0,
-                SeriesKind::Scatter(marker) => marker.size.max(6.0),
-            };
+        if target.is_pinned {
+            let (_, base_size) = marker_style_and_size(series);
             let ring_outer = base_size + PIN_RING_OUTER_PAD;
             let ring_inner = base_size + PIN_RING_INNER_PAD;
             render.push(RenderCommand::Points {
@@ -1223,24 +1219,7 @@ fn build_hover(
             return;
         }
 
-        let (marker_style, base_size) = match series.kind() {
-            SeriesKind::Line(line) => (
-                MarkerStyle {
-                    color: line.color,
-                    size: 6.0,
-                    shape: MarkerShape::Circle,
-                },
-                6.0,
-            ),
-            SeriesKind::Scatter(marker) => (
-                MarkerStyle {
-                    color: marker.color,
-                    size: marker.size.max(6.0),
-                    shape: marker.shape,
-                },
-                marker.size.max(6.0),
-            ),
-        };
+        let (marker_style, base_size) = marker_style_and_size(series);
         let ring_outer = base_size + PIN_RING_OUTER_PAD;
         let ring_inner = base_size + PIN_RING_INNER_PAD;
         render.push(RenderCommand::Points {
@@ -1615,6 +1594,194 @@ fn distance_sq(a: ScreenPoint, b: ScreenPoint) -> f32 {
     let dx = a.x - b.x;
     let dy = a.y - b.y;
     dx * dx + dy * dy
+}
+
+fn marker_style_and_size(series: &Series) -> (MarkerStyle, f32) {
+    match series.kind() {
+        SeriesKind::Line(line) => (
+            MarkerStyle {
+                color: line.color,
+                size: 6.0,
+                shape: MarkerShape::Circle,
+            },
+            6.0,
+        ),
+        SeriesKind::Scatter(marker) => (
+            MarkerStyle {
+                color: marker.color,
+                size: marker.size.max(6.0),
+                shape: marker.shape,
+            },
+            marker.size.max(6.0),
+        ),
+    }
+}
+
+fn hover_target_within_threshold(
+    target: &HoverTarget,
+    cursor: ScreenPoint,
+    config: &PlotViewConfig,
+) -> bool {
+    let threshold = if target.is_pinned {
+        config.unpin_threshold_px
+    } else {
+        config.pin_threshold_px
+    };
+    distance_sq(target.screen, cursor) <= threshold * threshold
+}
+
+fn update_hover_target(
+    plot: &Plot,
+    state: &mut PlotUiState,
+    transform: &Transform,
+    plot_rect: ScreenRect,
+    pin_threshold: f32,
+    unpin_threshold: f32,
+) {
+    let Some(cursor) = state.hover else {
+        state.hover_target = None;
+        return;
+    };
+    state.hover_target = compute_hover_target(
+        plot,
+        transform,
+        cursor,
+        Some(plot_rect),
+        pin_threshold,
+        unpin_threshold,
+    );
+}
+
+fn compute_hover_target(
+    plot: &Plot,
+    transform: &Transform,
+    cursor: ScreenPoint,
+    plot_rect: Option<ScreenRect>,
+    pin_threshold: f32,
+    unpin_threshold: f32,
+) -> Option<HoverTarget> {
+    let plot_rect = plot_rect?;
+    if cursor.x < plot_rect.min.x
+        || cursor.x > plot_rect.max.x
+        || cursor.y < plot_rect.min.y
+        || cursor.y > plot_rect.max.y
+    {
+        return None;
+    }
+
+    if let Some(target) = nearest_pinned_within(plot, transform, cursor, plot_rect, unpin_threshold)
+    {
+        return Some(target);
+    }
+
+    find_nearest_unpinned_point(plot, transform, cursor, plot_rect, pin_threshold)
+}
+
+fn nearest_pinned_within(
+    plot: &Plot,
+    transform: &Transform,
+    cursor: ScreenPoint,
+    plot_rect: ScreenRect,
+    threshold: f32,
+) -> Option<HoverTarget> {
+    let threshold_sq = threshold * threshold;
+    let mut best: Option<(crate::interaction::Pin, ScreenPoint, f32)> = None;
+    for pin in plot.pins() {
+        let Some(screen) = pin_screen_point(plot, *pin, transform) else {
+            continue;
+        };
+        if screen.x < plot_rect.min.x
+            || screen.x > plot_rect.max.x
+            || screen.y < plot_rect.min.y
+            || screen.y > plot_rect.max.y
+        {
+            continue;
+        }
+        let dist = distance_sq(screen, cursor);
+        if dist > threshold_sq {
+            continue;
+        }
+        if best.is_none_or(|best| dist < best.2) {
+            best = Some((*pin, screen, dist));
+        }
+    }
+    best.map(|(pin, screen, _)| HoverTarget {
+        pin,
+        screen,
+        is_pinned: true,
+    })
+}
+
+fn find_nearest_unpinned_point(
+    plot: &Plot,
+    transform: &Transform,
+    cursor: ScreenPoint,
+    plot_rect: ScreenRect,
+    threshold: f32,
+) -> Option<HoverTarget> {
+    let center = transform.screen_to_data(cursor)?;
+    let edge = transform.screen_to_data(ScreenPoint::new(cursor.x + threshold, cursor.y))?;
+    let dx = (edge.x - center.x).abs();
+    let search_range = Range::new(center.x - dx, center.x + dx);
+    let threshold_sq = threshold * threshold;
+    let pins = plot.pins();
+    let mut best: Option<(crate::interaction::Pin, ScreenPoint, f32)> = None;
+
+    for series in plot.series() {
+        if !series.is_visible() {
+            continue;
+        }
+        let data = series.data().data();
+        let index_range = data.range_by_x(search_range);
+        for index in index_range {
+            let Some(point) = data.point(index) else {
+                continue;
+            };
+            let pin = crate::interaction::Pin {
+                series_id: series.id(),
+                point_index: index,
+            };
+            if pins.iter().any(|p| *p == pin) {
+                continue;
+            }
+            let Some(screen) = transform.data_to_screen(point) else {
+                continue;
+            };
+            if screen.x < plot_rect.min.x
+                || screen.x > plot_rect.max.x
+                || screen.y < plot_rect.min.y
+                || screen.y > plot_rect.max.y
+            {
+                continue;
+            }
+            let dist = distance_sq(screen, cursor);
+            if dist > threshold_sq {
+                continue;
+            }
+            if best.is_none_or(|best| dist < best.2) {
+                best = Some((pin, screen, dist));
+            }
+        }
+    }
+
+    best.map(|(pin, screen, _)| HoverTarget {
+        pin,
+        screen,
+        is_pinned: false,
+    })
+}
+
+fn pin_screen_point(
+    plot: &Plot,
+    pin: crate::interaction::Pin,
+    transform: &Transform,
+) -> Option<ScreenPoint> {
+    let series = plot
+        .series()
+        .iter()
+        .find(|series| series.id() == pin.series_id)?;
+    let point = series.data().data().point(pin.point_index)?;
+    transform.data_to_screen(point)
 }
 
 fn clamp_point(point: ScreenPoint, rect: ScreenRect, size: (f32, f32)) -> ScreenPoint {
