@@ -14,55 +14,107 @@ for rendering and interaction.
 
 ## Feature flags
 
-- : Enable time-axis formatting via  and local
+- `time`: Enable time-axis formatting via `time::OffsetDateTime` and local
   offsets.
 
 ## Installation
 
-Add to your :
+Add to your `Cargo.toml`:
 
-
+```toml
+[dependencies]
+gpui_plot = "0.1"
+```
 
 Enable time axis formatting (optional):
 
-
+```toml
+[dependencies]
+gpui_plot = { version = "0.1", features = ["time"] }
+```
 
 ## Quick start (plot only)
 
+```rust
+use gpui_plot::{LineStyle, Plot, Series, SeriesKind, Theme};
 
+let mut plot = Plot::builder().theme(Theme::dark()).build();
+let series = Series::from_iter_y(
+    "sensor",
+    (0..1000).map(|i| (i as f64 * 0.01).sin()),
+    SeriesKind::Line(LineStyle::default()),
+);
+plot.add_series(series);
+plot.refresh_viewport(0.05, 1e-6);
+```
 
 ## Quick start (GPUI)
 
+```rust
+use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui_plot::{AxisConfig, GpuiPlotView, Plot, Series, SeriesKind, Theme};
 
+Application::new().run(|cx| {
+    let options = WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(720.0), px(480.0)),
+            cx,
+        ))),
+        ..Default::default()
+    };
+
+    cx.open_window(options, |_window, cx| {
+        let series = Series::from_iter_y(
+            "signal",
+            (0..400).map(|i| (i as f64 * 0.03).sin()),
+            SeriesKind::Line(Default::default()),
+        );
+
+        let mut plot = Plot::builder()
+            .theme(Theme::dark())
+            .x_axis(AxisConfig::linear().with_title("Sample"))
+            .y_axis(AxisConfig::linear().with_title("Amplitude"))
+            .build();
+        plot.add_series(series);
+
+        let view = GpuiPlotView::new(plot);
+        cx.new(|_| view)
+    })
+    .unwrap();
+});
+```
 
 ## Examples
 
 Each example focuses on a single feature:
 
-- Basic usage: 
-- Append-only streaming + FollowLastN: 
-- Time axis: 
-- Pin annotations: 
+- Basic usage: `cargo run --example basic`
+- Append-only streaming + FollowLastN: `cargo run --example append_only`
+- Time axis: `cargo run --example time_axis`
+- Pin annotations: `cargo run --example pins`
 
-Time formatting requires :
+Time formatting requires `time`:
 
-
+```
+cargo run --example time_axis --features time
+```
 
 ## Data model
 
 - Append-only series data for high-throughput streaming.
 - Two X modes:
-  - Implicit X (index-based):  /  + .
-  - Explicit X/Y:  or .
+  - Implicit X (index-based): `Series::line` / `Series::scatter` + `push_y`.
+  - Explicit X/Y: `Series::from_iter_points` or `push_point`.
 - Explicit X values are expected to be monotonic for fast range queries; the
   library will still render non-monotonic data but may fall back to full scans.
 
 ## View modes
 
-- : Automatically fit all visible data (default).
-- : View remains fixed; used after user interaction.
-- : Follow last N points on X (oscilloscope-style).
-- : Follow last N points on X and auto-scale Y.
+- `View::AutoAll`: Automatically fit all visible data (default).
+- `View::Manual`: View remains fixed; used after user interaction.
+- `View::FollowLastN`: Follow last N points on X (oscilloscope-style).
+- `View::FollowLastNXY`: Follow last N points on X and auto-scale Y.
 
 ## Interaction summary (GPUI backend)
 
@@ -78,13 +130,13 @@ Time formatting requires :
 ## Performance model
 
 - Viewport-aware decimation (min/max envelope) keeps line rendering near
-  .
+  `O(plot_width)`.
 - Multi-level summaries provide efficient zoomed-out rendering.
 - Render caches are keyed by viewport, size, and data generation.
 
 ## Theming
 
-Use  or  and customize axis/grid colors as
+Use `Theme::dark()` or `Theme::light()` and customize axis/grid colors as
 needed. Themes apply to the whole plot.
 
 ## Limitations
@@ -95,12 +147,12 @@ needed. Themes apply to the whole plot.
 
 ## Development checks
 
-- 
-- 
+- `cargo check`
+- `cargo clippy --all-targets`
 
 ## Repro steps (manual QA)
 
-1. Run  and verify the plot renders.
-2. Run  and observe streaming updates.
-3. Run  and verify time labels.
-4. Run  and click on points to pin/unpin.
+1. Run `cargo run --example basic` and verify the plot renders.
+2. Run `cargo run --example append_only` and observe streaming updates.
+3. Run `cargo run --example time_axis --features time` and verify time labels.
+4. Run `cargo run --example pins` and click on points to pin/unpin.
