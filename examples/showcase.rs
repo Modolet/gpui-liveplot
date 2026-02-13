@@ -8,7 +8,7 @@ use gpui::{
     WindowBounds, WindowOptions, div, px, size,
 };
 use gpui_component::{
-    ActiveTheme, Root, StyledExt,
+    ActiveTheme, Root, StyledExt, Theme as ComponentTheme, ThemeMode,
     badge::Badge,
     button::{Button, ButtonVariants},
     divider::Divider,
@@ -139,10 +139,10 @@ impl Showcase {
             },
         ];
 
-        Self {
+        let this = Self {
             tabs,
             selected: 0,
-            theme_light: false,
+            theme_light: !cx.theme().is_dark(),
             slider,
             live_panel,
             live_runtime,
@@ -151,7 +151,9 @@ impl Showcase {
             log_panel,
             sampled_panel,
             time_panel,
-        }
+        };
+        this.apply_theme();
+        this
     }
 
     fn apply_theme(&self) {
@@ -205,6 +207,11 @@ impl gpui::Render for Showcase {
         _window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
+        let theme_light = !cx.theme().is_dark();
+        if self.theme_light != theme_light {
+            self.theme_light = theme_light;
+            self.apply_theme();
+        }
         let running = self.live_runtime.running.load(Ordering::Relaxed);
         let rate = self.live_runtime.rate.load(Ordering::Relaxed);
         let points = self.live_runtime.points.load(Ordering::Relaxed);
@@ -305,11 +312,17 @@ impl gpui::Render for Showcase {
             });
 
         let theme_switch = Switch::new("theme-light")
-            .checked(self.theme_light)
+            .checked(theme_light)
             .label("Light Theme")
             .on_click({
                 let entity = entity.clone();
-                move |next, _, cx| {
+                move |next, window, cx| {
+                    let mode = if *next {
+                        ThemeMode::Light
+                    } else {
+                        ThemeMode::Dark
+                    };
+                    ComponentTheme::change(mode, Some(window), cx);
                     entity.update(cx, |this, cx| {
                         this.theme_light = *next;
                         this.apply_theme();
