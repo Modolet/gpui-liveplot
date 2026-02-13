@@ -24,6 +24,9 @@ use super::paint::{paint_frame, to_hsla};
 use super::state::{ClickState, DragMode, DragState, PinToggle, PlotUiState};
 
 /// A GPUI view that renders a [`Plot`] with interactive controls.
+///
+/// This view handles pan/zoom/box-zoom, hover readouts, and pin interactions
+/// while delegating data management to the underlying [`Plot`].
 #[derive(Clone)]
 pub struct GpuiPlotView {
     plot: Arc<RwLock<Plot>>,
@@ -33,6 +36,8 @@ pub struct GpuiPlotView {
 
 impl GpuiPlotView {
     /// Create a new GPUI plot view for the given plot.
+    ///
+    /// Uses the default [`PlotViewConfig`].
     pub fn new(plot: Plot) -> Self {
         Self {
             plot: Arc::new(RwLock::new(plot)),
@@ -51,6 +56,8 @@ impl GpuiPlotView {
     }
 
     /// Get a handle for mutating the underlying plot.
+    ///
+    /// This is useful for streaming updates from async tasks.
     pub fn plot_handle(&self) -> PlotHandle {
         PlotHandle {
             plot: Arc::clone(&self.plot),
@@ -377,6 +384,8 @@ impl Render for GpuiPlotView {
 }
 
 /// A handle for mutating a [`Plot`] held inside a `GpuiPlotView`.
+///
+/// The handle clones cheaply and can be moved into async tasks.
 #[derive(Clone)]
 pub struct PlotHandle {
     plot: Arc<RwLock<Plot>>,
@@ -384,12 +393,16 @@ pub struct PlotHandle {
 
 impl PlotHandle {
     /// Read the plot state.
+    ///
+    /// The plot is locked for the duration of the callback.
     pub fn read<R>(&self, f: impl FnOnce(&Plot) -> R) -> R {
         let plot = self.plot.read().expect("plot lock");
         f(&plot)
     }
 
     /// Mutate the plot state.
+    ///
+    /// The plot is locked for the duration of the callback.
     pub fn write<R>(&self, f: impl FnOnce(&mut Plot) -> R) -> R {
         let mut plot = self.plot.write().expect("plot lock");
         f(&mut plot)

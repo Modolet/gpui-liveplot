@@ -1,4 +1,7 @@
 //! Rendering primitives and clipping helpers.
+//!
+//! These types are backend-agnostic and are used by render backends (such as the
+//! GPUI backend) to describe how plots should be drawn.
 
 use crate::axis::AxisScale;
 use crate::geom::{Point, ScreenPoint, ScreenRect};
@@ -6,6 +9,8 @@ use crate::transform::Transform;
 use crate::view::Viewport;
 
 /// RGBA color in linear space.
+///
+/// All components are expected to be in the 0.0..=1.0 range.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
     /// Red channel.
@@ -31,6 +36,8 @@ impl Color {
 }
 
 /// Line stroke styling.
+///
+/// The width is expressed in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LineStyle {
     /// Stroke color.
@@ -60,6 +67,8 @@ pub enum MarkerShape {
 }
 
 /// Marker styling for scatter plots.
+///
+/// Marker sizes are expressed in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MarkerStyle {
     /// Marker color.

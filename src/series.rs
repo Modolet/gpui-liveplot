@@ -10,6 +10,9 @@ use crate::view::Viewport;
 static SERIES_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 /// Unique identifier for a series.
+///
+/// Series IDs are stable within a process and are used to bind pins to
+/// specific series and point indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SeriesId(u64);
 
@@ -20,6 +23,8 @@ impl SeriesId {
 }
 
 /// Series rendering kind.
+///
+/// A series always has exactly one rendering kind.
 #[derive(Debug, Clone)]
 pub enum SeriesKind {
     /// Line series with styling.
@@ -29,6 +34,9 @@ pub enum SeriesKind {
 }
 
 /// Plot series with data storage and styling.
+///
+/// Series own their data and provide append-only methods for streaming
+/// workloads. All axes and transforms are handled at the plot level.
 #[derive(Debug, Clone)]
 pub struct Series {
     id: SeriesId,
@@ -40,6 +48,8 @@ pub struct Series {
 
 impl Series {
     /// Create a line series with indexed data.
+    ///
+    /// Indexed data uses implicit X values (0, 1, 2, ...).
     pub fn line(name: impl Into<String>) -> Self {
         Self {
             id: SeriesId::next(),
@@ -51,6 +61,8 @@ impl Series {
     }
 
     /// Create a scatter series with indexed data.
+    ///
+    /// Indexed data uses implicit X values (0, 1, 2, ...).
     pub fn scatter(name: impl Into<String>) -> Self {
         Self {
             id: SeriesId::next(),
@@ -77,6 +89,8 @@ impl Series {
     }
 
     /// Build a series from an iterator of Y values.
+    ///
+    /// X values are assigned as implicit indices.
     pub fn from_iter_y<I, T>(name: impl Into<String>, iter: I, kind: SeriesKind) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -87,6 +101,8 @@ impl Series {
     }
 
     /// Build a series from an iterator of points.
+    ///
+    /// X values are taken from each [`Point`](crate::geom::Point).
     pub fn from_iter_points<I>(name: impl Into<String>, iter: I, kind: SeriesKind) -> Self
     where
         I: IntoIterator<Item = Point>,
@@ -96,6 +112,8 @@ impl Series {
     }
 
     /// Build a series by sampling a callback function.
+    ///
+    /// The callback is sampled uniformly across `x_range`.
     pub fn from_explicit_callback(
         name: impl Into<String>,
         function: impl Fn(f64) -> f64,
@@ -149,6 +167,8 @@ impl Series {
     }
 
     /// Access the series generation.
+    ///
+    /// This monotonically increasing value is used for render cache invalidation.
     pub fn generation(&self) -> u64 {
         self.data.generation()
     }

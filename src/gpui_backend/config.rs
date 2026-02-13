@@ -1,4 +1,6 @@
 /// Configuration for the GPUI plot view.
+///
+/// These values tune interaction thresholds and layout behavior for GPUI.
 #[derive(Debug, Clone)]
 pub struct PlotViewConfig {
     /// Pixel threshold for starting a drag.

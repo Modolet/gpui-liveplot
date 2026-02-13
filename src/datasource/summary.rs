@@ -4,10 +4,16 @@ use crate::geom::Point;
 use crate::view::Range;
 
 /// Min/max envelope for a bucket of points.
+///
+/// This preserves extrema within a bucket and supports ordered emission to
+/// maintain a non-self-intersecting polyline.
 #[derive(Debug, Clone, Copy)]
 pub struct MinMax {
+    /// Minimum Y point within the bucket.
     pub min: Point,
+    /// Maximum Y point within the bucket.
     pub max: Point,
+    /// Covered X range for the bucket.
     pub x_range: Range,
 }
 
@@ -50,6 +56,8 @@ impl MinMax {
     }
 
     /// Push min/max points in X order into the output.
+    ///
+    /// This maintains monotonic X order when emitting a min/max envelope.
     pub fn push_ordered(&self, out: &mut Vec<Point>) {
         if self.min == self.max {
             out.push(self.min);
@@ -98,6 +106,8 @@ impl PartialBucket {
 }
 
 /// Summary bucket level.
+///
+/// Each level aggregates min/max buckets at a specific chunk size.
 #[derive(Debug, Clone)]
 pub struct SummaryLevel {
     chunk_size: usize,
@@ -118,6 +128,9 @@ impl SummaryLevel {
 }
 
 /// Multi-level min/max summaries for append-only data.
+///
+/// Higher levels provide lower-resolution summaries that are cheaper to scan
+/// when zoomed out.
 #[derive(Debug, Clone)]
 pub struct SummaryLevels {
     base_chunk: usize,
@@ -127,6 +140,8 @@ pub struct SummaryLevels {
 
 impl SummaryLevels {
     /// Create summaries with the given base chunk size.
+    ///
+    /// A smaller chunk size yields more accurate summaries but more work.
     pub fn new(base_chunk: usize) -> Self {
         let base_chunk = base_chunk.max(1);
         Self {
@@ -142,6 +157,8 @@ impl SummaryLevels {
     }
 
     /// Push a new point into the summaries.
+    ///
+    /// Appends are incremental and do not rebuild existing summaries.
     pub fn push(&mut self, point: Point) {
         match self.partial.as_mut() {
             None => {
@@ -274,6 +291,9 @@ impl Bucket {
 }
 
 /// Decimate points into a min/max envelope with approximately one bucket per pixel.
+///
+/// The output preserves extrema and is suitable for rendering dense lines at
+/// interactive frame rates.
 pub fn decimate_minmax<'a>(
     points: &[Point],
     x_range: Range,

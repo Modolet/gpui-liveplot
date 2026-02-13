@@ -1,10 +1,18 @@
 //! Axis configuration, scaling, and formatting.
+//!
+//! Axes are configured at the plot level and shared across all series. This module provides:
+//! - scale types (linear/time),
+//! - formatting and tick generation,
+//! - layout metadata used by render backends.
 
 use std::sync::Arc;
 
 use crate::view::Range;
 
-/// Axis scale type.
+/// Axis scale type shared by all series in a plot.
+///
+/// The time scale is represented internally as seconds since Unix epoch (`f64`)
+/// and behaves like a linear scale for transforms and decimation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisScale {
     /// Linear scaling.
@@ -15,6 +23,8 @@ pub enum AxisScale {
 
 impl AxisScale {
     /// Map a value into axis space.
+    ///
+    /// Returns `None` for non-finite values.
     pub fn map_value(self, value: f64) -> Option<f64> {
         if !value.is_finite() {
             return None;
@@ -25,6 +35,8 @@ impl AxisScale {
     }
 
     /// Invert a value from axis space back into data space.
+    ///
+    /// Returns `None` for non-finite values.
     pub fn invert_value(self, value: f64) -> Option<f64> {
         if !value.is_finite() {
             return None;
@@ -35,6 +47,8 @@ impl AxisScale {
     }
 
     /// Check whether a data range is valid for this scale.
+    ///
+    /// Time and linear scales share the same validity rules.
     pub fn is_range_valid(self, range: Range) -> bool {
         if !range.is_finite() {
             return false;
@@ -46,17 +60,25 @@ impl AxisScale {
 }
 
 /// Formatter for axis tick labels.
+///
+/// Use [`AxisFormatter::Custom`] to provide a locale-aware or domain-specific
+/// formatting function.
 #[derive(Clone, Default)]
 pub enum AxisFormatter {
     /// Default numeric formatter.
     #[default]
     Default,
     /// Custom formatter callback.
+    ///
+    /// The function must be thread-safe because plots can be rendered from
+    /// multiple contexts.
     Custom(Arc<dyn Fn(f64) -> String + Send + Sync>),
 }
 
 impl AxisFormatter {
     /// Format a value for display.
+    ///
+    /// Time axes can override this via [`AxisConfig::format_value`].
     pub fn format(&self, value: f64) -> String {
         match self {
             Self::Default => format!("{value:.6}"),
@@ -75,6 +97,10 @@ impl std::fmt::Debug for AxisFormatter {
 }
 
 /// Axis configuration shared across all series in a plot.
+///
+/// The axis configuration is owned by [`Plot`](crate::plot::Plot) and affects
+/// all series within the plot. Each series contributes data only; axes control
+/// scaling, ticks, formatting, and grid/border appearance.
 #[derive(Debug, Clone)]
 pub struct AxisConfig {
     scale: AxisScale,
@@ -91,6 +117,8 @@ pub struct AxisConfig {
 
 impl AxisConfig {
     /// Create a new axis configuration.
+    ///
+    /// Most users should prefer [`AxisConfig::linear`] or [`AxisConfig::time`].
     pub fn new(scale: AxisScale) -> Self {
         Self {
             scale,
@@ -112,6 +140,8 @@ impl AxisConfig {
     }
 
     /// Create a time axis configuration.
+    ///
+    /// Time values are expected to be seconds since Unix epoch (`f64`).
     pub fn time() -> Self {
         Self::new(AxisScale::Time)
     }
@@ -140,12 +170,16 @@ impl AxisConfig {
     }
 
     /// Set the axis formatter.
+    ///
+    /// For time axes, the formatter overrides the built-in time formatting.
     pub fn with_formatter(mut self, formatter: AxisFormatter) -> Self {
         self.formatter = formatter;
         self
     }
 
     /// Set the tick configuration.
+    ///
+    /// The `pixel_spacing` hint determines how dense major ticks are.
     pub fn with_tick_config(mut self, config: TickConfig) -> Self {
         self.tick_config = config;
         self
@@ -197,6 +231,9 @@ impl AxisConfig {
     }
 
     /// Format a value for display, using time formatting when appropriate.
+    ///
+    /// For `AxisScale::Time`, this uses the built-in formatter unless a
+    /// custom formatter is supplied.
     pub fn format_value(&self, value: f64) -> String {
         if self.scale == AxisScale::Time {
             match &self.formatter {
@@ -246,6 +283,9 @@ impl Default for AxisConfig {
 }
 
 /// Tick generation configuration.
+///
+/// The tick generator uses `pixel_spacing` as a target distance between
+/// major ticks and inserts `minor_count` minor ticks in between.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TickConfig {
     /// Target pixel spacing between major ticks.

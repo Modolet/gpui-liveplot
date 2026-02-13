@@ -1,6 +1,12 @@
 //! View models and data ranges.
+//!
+//! The view layer is responsible for describing the data ranges visible on screen
+//! and how those ranges are updated as new data arrives.
 
 /// Numeric range with inclusive bounds.
+///
+/// `Range` is used for axis limits, data bounds, and viewport calculations. The
+/// constructor automatically swaps bounds to maintain `min <= max`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Range {
     /// Minimum value.
@@ -34,6 +40,8 @@ impl Range {
     }
 
     /// Expand the range to include a value.
+    ///
+    /// Non-finite values are ignored.
     pub fn expand_to_include(&mut self, value: f64) {
         if !value.is_finite() {
             return;
@@ -63,6 +71,8 @@ impl Range {
     }
 
     /// Add padding around the range.
+    ///
+    /// `frac` is applied to the current span and clamped by `min_padding`.
     pub fn padded(&self, frac: f64, min_padding: f64) -> Self {
         let span = self.span().abs();
         let padding = (span * frac).max(min_padding);
@@ -88,6 +98,10 @@ impl Range {
 }
 
 /// The active view mode for a plot.
+///
+/// View modes control how the viewport responds to new data and user
+/// interactions. Any explicit interaction typically switches the plot to
+/// [`View::Manual`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     /// Automatically show the full data range (default).
@@ -121,6 +135,9 @@ impl Default for View {
 }
 
 /// Visible data ranges on both axes.
+///
+/// A `Viewport` is the canonical input to coordinate transforms and decimation
+/// decisions.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Viewport {
     /// X axis range.

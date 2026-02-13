@@ -1,4 +1,7 @@
 //! Data sources and append-only storage.
+//!
+//! The data layer is optimized for append-only workloads and fast range
+//! queries. It underpins streaming plots and decimation logic.
 
 mod store;
 mod summary;
@@ -19,11 +22,16 @@ pub(crate) enum XMode {
 }
 
 /// Errors that can occur when appending data.
+///
+/// These errors indicate misuse of an append-only series (for example, mixing
+/// implicit and explicit X modes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppendError {
     /// Attempted to append with an incompatible X mode.
     WrongMode,
     /// Explicit X values are not monotonic.
+    ///
+    /// Non-monotonic X values disable fast range slicing.
     NonMonotonicX,
 }
 

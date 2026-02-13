@@ -1,7 +1,8 @@
 //! GPUI integration for gpui_plot.
 //!
-//! This module provides a GPUI view that renders a [`Plot`] and handles
-//! mouse interactions (pan, zoom, box zoom, and pinning).
+//! This module provides a GPUI view that renders a [`Plot`](crate::plot::Plot)
+//! and handles interactive behaviors such as pan, zoom, box zoom, hover
+//! readouts, and pin annotations.
 
 #![allow(clippy::collapsible_if)]
 

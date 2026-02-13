@@ -1,4 +1,7 @@
 //! Plot widget entry points and builders.
+//!
+//! A [`Plot`] owns axis configuration, view mode, and a set of series. All
+//! series in a plot share the same axes and transforms.
 
 use crate::axis::AxisConfig;
 use crate::interaction::Pin;
@@ -7,6 +10,10 @@ use crate::style::Theme;
 use crate::view::{Range, View, Viewport};
 
 /// Main plot widget container.
+///
+/// A plot is backend-agnostic and focuses on data, view state, and styling.
+/// Render backends (such as the GPUI backend) drive viewport refreshes and
+/// interaction state.
 #[derive(Debug, Clone)]
 pub struct Plot {
     theme: Theme,
@@ -20,6 +27,8 @@ pub struct Plot {
 
 impl Plot {
     /// Create a plot with default configuration.
+    ///
+    /// Equivalent to `PlotBuilder::default().build()`.
     pub fn new() -> Self {
         Self {
             theme: Theme::default(),
@@ -63,6 +72,8 @@ impl Plot {
     }
 
     /// Access the current viewport.
+    ///
+    /// The viewport is computed by [`Plot::refresh_viewport`].
     pub fn viewport(&self) -> Option<Viewport> {
         self.viewport
     }
@@ -92,7 +103,7 @@ impl Plot {
         &mut self.pins
     }
 
-    /// Compute bounds across all series.
+    /// Compute bounds across all visible series.
     pub fn data_bounds(&self) -> Option<Viewport> {
         let mut x_range: Option<Range> = None;
         let mut y_range: Option<Range> = None;
@@ -130,6 +141,9 @@ impl Plot {
     }
 
     /// Refresh the viewport based on the current view mode and data.
+    ///
+    /// This updates the cached viewport and applies padding to avoid tight
+    /// bounds during auto-fit.
     pub fn refresh_viewport(&mut self, padding_frac: f64, min_padding: f64) -> Option<Viewport> {
         let bounds = self.data_bounds()?;
         match self.view {
@@ -225,6 +239,8 @@ impl Default for Plot {
 }
 
 /// Builder for configuring a plot before construction.
+///
+/// The builder captures theme, axes, view mode, and any initial series.
 #[derive(Debug, Default)]
 pub struct PlotBuilder {
     theme: Theme,

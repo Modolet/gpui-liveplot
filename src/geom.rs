@@ -1,6 +1,11 @@
 //! Geometric primitives used by the plotting pipeline.
+//!
+//! Public types in this module represent data-space coordinates. Screen-space
+//! types are internal to render backends.
 
 /// A point in data space.
+///
+/// Use this when providing explicit X/Y values.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     /// X value in data coordinates.

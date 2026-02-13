@@ -1,8 +1,12 @@
 //! Style and theming configuration.
+//!
+//! Themes describe plot-level colors (background, grid, axes, overlays).
 
 use crate::render::Color;
 
 /// Visual theme for plot-level elements such as axes, grid, and overlays.
+///
+/// Themes are applied at the plot level and affect all series and overlays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Theme {
     /// Plot background color.

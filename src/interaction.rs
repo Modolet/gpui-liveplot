@@ -1,4 +1,7 @@
 //! Interaction helpers for panning, zooming, and pin selection.
+//!
+//! These helpers are used by render backends to implement consistent
+//! interaction semantics across platforms.
 
 use crate::geom::{Point, ScreenPoint, ScreenRect};
 use crate::series::SeriesId;
@@ -45,6 +48,9 @@ impl PlotRegions {
 }
 
 /// Pin binding to a stable point identity.
+///
+/// Pins are stable references to a specific series and point index, allowing
+/// annotations to remain consistent even when the view is decimated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pin {
     /// Series identifier.
