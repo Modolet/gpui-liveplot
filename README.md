@@ -27,9 +27,15 @@ plot.refresh_viewport(0.05, 1e-6);
 
 ## Examples
 
-- 简洁 GUI 展示（实时追加 + 时间轴 + 交互）：
-  - `cargo run --example showcase`
-  - 如需时间轴格式化：`cargo run --example showcase --features time`
+- 基础用法：
+  - `cargo run --example basic`
+- append-only 实时追加（FollowLastN）：
+  - `cargo run --example append_only`
+- 时间轴展示：
+  - `cargo run --example time_axis`
+  - 如需时间轴格式化：`cargo run --example time_axis --features time`
+- Pin 标注：
+  - `cargo run --example pins`
 
 ## 开发自检
 
@@ -38,6 +44,7 @@ plot.refresh_viewport(0.05, 1e-6);
 
 ## 验收操作（可复现步骤）
 
-1. 运行 `cargo run --example showcase`，确认各 Tab 正常渲染与交互。
-2. 切换 Live Stream，观察实时追加与 Pin/缩放/框选。
-3. 启用 `time` feature 运行 `cargo run --example showcase --features time`，确认时间轴格式化。
+1. 运行 `cargo run --example basic`，确认基础图表渲染。
+2. 运行 `cargo run --example append_only`，确认实时追加与 FollowLastN 跟随。
+3. 运行 `cargo run --example time_axis --features time`，确认时间轴格式化。
+4. 运行 `cargo run --example pins`，点击曲线点位进行 Pin 标注。
