@@ -96,12 +96,4 @@ mod tests {
         assert!((roundtrip.x - point.x).abs() < 1e-9);
         assert!((roundtrip.y - point.y).abs() < 1e-9);
     }
-
-    #[test]
-    fn log_rejects_non_positive_range() {
-        let viewport = Viewport::new(Range::new(-1.0, 10.0), Range::new(1.0, 10.0));
-        let screen = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(100.0, 100.0));
-        let transform = Transform::new(viewport, screen, AxisScale::Log10, AxisScale::Linear);
-        assert!(transform.is_none());
-    }
 }

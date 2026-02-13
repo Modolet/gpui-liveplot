@@ -65,7 +65,6 @@ impl LiveRuntime {
 enum TabKind {
     Live,
     Multi,
-    Log,
     Sampled,
     Time,
 }
@@ -84,7 +83,6 @@ struct Showcase {
     live_runtime: LiveRuntime,
     multi_panel: MultiPanel,
     multi_visible: [bool; 2],
-    log_panel: PlotPanel,
     sampled_panel: PlotPanel,
     time_panel: PlotPanel,
 }
@@ -94,7 +92,6 @@ impl Showcase {
         cx: &mut gpui::Context<Self>,
         live_panel: LivePanel,
         multi_panel: MultiPanel,
-        log_panel: PlotPanel,
         sampled_panel: PlotPanel,
         time_panel: PlotPanel,
         live_runtime: LiveRuntime,
@@ -126,10 +123,6 @@ impl Showcase {
                 kind: TabKind::Multi,
             },
             TabSpec {
-                label: "Log Scale",
-                kind: TabKind::Log,
-            },
-            TabSpec {
                 label: "Sampled + Dense",
                 kind: TabKind::Sampled,
             },
@@ -148,7 +141,6 @@ impl Showcase {
             live_runtime,
             multi_panel,
             multi_visible: [true, true],
-            log_panel,
             sampled_panel,
             time_panel,
         };
@@ -171,9 +163,6 @@ impl Showcase {
             .panel
             .plot
             .write(|plot| plot.set_theme(theme.clone()));
-        self.log_panel
-            .plot
-            .write(|plot| plot.set_theme(theme.clone()));
         self.sampled_panel
             .plot
             .write(|plot| plot.set_theme(theme.clone()));
@@ -184,7 +173,6 @@ impl Showcase {
         match kind {
             TabKind::Live => self.live_panel.panel.plot.clone(),
             TabKind::Multi => self.multi_panel.panel.plot.clone(),
-            TabKind::Log => self.log_panel.plot.clone(),
             TabKind::Sampled => self.sampled_panel.plot.clone(),
             TabKind::Time => self.time_panel.plot.clone(),
         }
@@ -194,7 +182,6 @@ impl Showcase {
         match kind {
             TabKind::Live => self.live_panel.panel.view.clone().into_any_element(),
             TabKind::Multi => self.multi_panel.panel.view.clone().into_any_element(),
-            TabKind::Log => self.log_panel.view.clone().into_any_element(),
             TabKind::Sampled => self.sampled_panel.view.clone().into_any_element(),
             TabKind::Time => self.time_panel.view.clone().into_any_element(),
         }
@@ -586,33 +573,6 @@ fn build_multi_panel(cx: &mut gpui::App) -> MultiPanel {
     MultiPanel { panel, series_ids }
 }
 
-fn build_log_panel(cx: &mut gpui::App) -> PlotPanel {
-    let points = (1..=2000).map(|i| {
-        let x = i as f64;
-        let y = (i as f64 * 0.012).exp();
-        Point::new(x, y)
-    });
-
-    let line = Series::from_iter_points(
-        "log-growth",
-        points,
-        SeriesKind::Line(LineStyle {
-            color: Color::new(0.85, 0.75, 0.2, 1.0),
-            width: 2.0,
-        }),
-    );
-
-    let mut plot = Plot::builder()
-        .theme(PlotTheme::dark())
-        .x_axis(AxisConfig::linear().with_title("Index"))
-        .y_axis(AxisConfig::log10().with_title("Log10"))
-        .build();
-
-    plot.add_series(line);
-
-    build_panel(cx, plot, PlotViewConfig::default())
-}
-
 fn build_sampled_panel(cx: &mut gpui::App) -> PlotPanel {
     let range = Range::new(0.0, 240.0);
     let sampled = Series::from_explicit_callback(
@@ -763,7 +723,6 @@ fn main() {
         cx.open_window(options, |window, cx| {
             let live_panel = build_live_panel(cx);
             let multi_panel = build_multi_panel(cx);
-            let log_panel = build_log_panel(cx);
             let sampled_panel = build_sampled_panel(cx);
             let time_panel = build_time_panel(cx);
 
@@ -774,7 +733,6 @@ fn main() {
                     cx,
                     live_panel.clone(),
                     multi_panel.clone(),
-                    log_panel.clone(),
                     sampled_panel.clone(),
                     time_panel.clone(),
                     live_runtime.clone(),

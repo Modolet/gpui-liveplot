@@ -9,8 +9,6 @@ use crate::view::Range;
 pub enum AxisScale {
     /// Linear scaling.
     Linear,
-    /// Base-10 logarithmic scaling.
-    Log10,
     /// Time axis (mapped as linear seconds since Unix epoch internally).
     Time,
 }
@@ -23,13 +21,6 @@ impl AxisScale {
         }
         match self {
             Self::Linear | Self::Time => Some(value),
-            Self::Log10 => {
-                if value <= 0.0 {
-                    None
-                } else {
-                    Some(value.log10())
-                }
-            }
         }
     }
 
@@ -40,7 +31,6 @@ impl AxisScale {
         }
         match self {
             Self::Linear | Self::Time => Some(value),
-            Self::Log10 => Some(10_f64.powf(value)),
         }
     }
 
@@ -51,7 +41,6 @@ impl AxisScale {
         }
         match self {
             Self::Linear | Self::Time => true,
-            Self::Log10 => range.min > 0.0 && range.max > 0.0,
         }
     }
 }
@@ -120,11 +109,6 @@ impl AxisConfig {
     /// Create a linear axis configuration.
     pub fn linear() -> Self {
         Self::new(AxisScale::Linear)
-    }
-
-    /// Create a log10 axis configuration.
-    pub fn log10() -> Self {
-        Self::new(AxisScale::Log10)
     }
 
     /// Create a time axis configuration.
@@ -375,7 +359,6 @@ fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tic
     }
     match axis.scale() {
         AxisScale::Linear => generate_linear_ticks(axis, range, pixel_length),
-        AxisScale::Log10 => generate_log_ticks(axis, range),
         AxisScale::Time => generate_time_ticks(axis, range, pixel_length),
     }
 }
@@ -417,42 +400,6 @@ fn generate_linear_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> 
             }
         }
         value += step;
-    }
-
-    ticks
-}
-
-fn generate_log_ticks(axis: &AxisConfig, range: Range) -> Vec<Tick> {
-    if !axis.scale().is_range_valid(range) {
-        return Vec::new();
-    }
-
-    let min_exp = range.min.log10().floor() as i32;
-    let max_exp = range.max.log10().ceil() as i32;
-    let mut ticks = Vec::new();
-
-    for exp in min_exp..=max_exp {
-        let base = 10_f64.powi(exp);
-        let major = base;
-        if major >= range.min && major <= range.max {
-            ticks.push(Tick {
-                value: major,
-                label: axis.format_value(major),
-                is_major: true,
-            });
-        }
-        if axis.tick_config().minor_count > 0 {
-            for m in 2..=9 {
-                let minor = base * m as f64;
-                if minor >= range.min && minor <= range.max {
-                    ticks.push(Tick {
-                        value: minor,
-                        label: String::new(),
-                        is_major: false,
-                    });
-                }
-            }
-        }
     }
 
     ticks
@@ -544,36 +491,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn log_scale_rejects_non_positive() {
-        let scale = AxisScale::Log10;
-        assert!(scale.map_value(0.0).is_none());
-        assert!(scale.map_value(-1.0).is_none());
-        assert!(scale.map_value(1.0).is_some());
-    }
-
-    #[test]
-    fn log_scale_roundtrip() {
-        let scale = AxisScale::Log10;
-        let value = 1000.0;
-        let mapped = scale.map_value(value).unwrap();
-        let roundtrip = scale.invert_value(mapped).unwrap();
-        assert!((roundtrip - value).abs() < 1e-9);
-    }
-
-    #[test]
     fn linear_ticks_generate_major() {
         let axis = AxisConfig::linear();
         let ticks = generate_ticks(&axis, Range::new(0.0, 10.0), 400.0);
         assert!(ticks.iter().any(|tick| tick.is_major));
-    }
-
-    #[test]
-    fn log_ticks_generate_decades() {
-        let axis = AxisConfig::log10();
-        let ticks = generate_ticks(&axis, Range::new(1.0, 1000.0), 400.0);
-        let has_ten = ticks
-            .iter()
-            .any(|tick| (tick.value - 10.0).abs() < 1e-9 && tick.is_major);
-        assert!(has_ten);
     }
 }

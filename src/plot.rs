@@ -143,9 +143,7 @@ impl Plot {
                         next.y = current.y;
                     }
                 }
-                let x = pad_range_for_axis(next.x, &self.x_axis, padding_frac, min_padding);
-                let y = pad_range_for_axis(next.y, &self.y_axis, padding_frac, min_padding);
-                self.viewport = Some(Viewport::new(x, y));
+                self.viewport = Some(next.padded(padding_frac, min_padding));
             }
             View::Manual => {
                 if self.viewport.is_none() {
@@ -218,37 +216,6 @@ impl Plot {
 
         Some(Viewport::new(x_range, y_range))
     }
-}
-
-fn pad_range_for_axis(
-    range: Range,
-    axis: &AxisConfig,
-    padding_frac: f64,
-    min_padding: f64,
-) -> Range {
-    match axis.scale() {
-        crate::axis::AxisScale::Log10 => pad_log_range(range, padding_frac, min_padding),
-        _ => range.padded(padding_frac, min_padding),
-    }
-}
-
-fn pad_log_range(range: Range, padding_frac: f64, min_padding: f64) -> Range {
-    if !range.is_finite() {
-        return range;
-    }
-
-    let frac = padding_frac.max(0.0);
-    let min_padding = min_padding.max(0.0);
-
-    if range.min <= 0.0 || range.max <= 0.0 {
-        let fallback_min = min_padding.max(1e-12);
-        let fallback_max = (fallback_min * (1.0 + frac)).max(fallback_min * 10.0);
-        return Range::new(fallback_min, fallback_max);
-    }
-
-    let min = (range.min / (1.0 + frac)).max(min_padding);
-    let max = range.max * (1.0 + frac);
-    Range::new(min, max)
 }
 
 impl Default for Plot {

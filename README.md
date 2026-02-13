@@ -6,7 +6,7 @@
 
 - append-only 数据模型，适配传感器采样场景
 - 视口级抽稀（min/max envelope）+ 多级摘要
-- 线性/对数/时间轴（时间轴需启用 `time` feature）
+- 线性/时间轴（时间轴需启用 `time` feature）
 - 交互逻辑：平移、缩放、框选、Pin 命中逻辑
 - GPUI 渲染与交互后端
 
@@ -27,16 +27,9 @@ plot.refresh_viewport(0.05, 1e-6);
 
 ## Examples
 
-- 基础示例：
-  - `cargo run --example basic`
-- 高频追加（默认 5s，可设置环境变量 `DURATION_SECS`）：
-  - `DURATION_SECS=120 cargo run --example realtime_append`
-- 多 series 与对数轴：
-  - `cargo run --example multi_series`
-- 时间轴（需 feature）：
-  - `cargo run --example time_axis --features time`
-- GPUI 交互演示：
-  - `cargo run --example gpui_demo`
+- GUI 展示（包含实时追加、多序列、函数采样、时间轴与交互）：
+  - `cargo run --example showcase`
+  - 如需时间轴格式化：`cargo run --example showcase --features time`
 
 ## 开发自检
 
@@ -45,6 +38,6 @@ plot.refresh_viewport(0.05, 1e-6);
 
 ## 验收操作（可复现步骤）
 
-1. 运行 `cargo run --example realtime_append` 并观察每秒输出的点数增长。
-2. 运行 `cargo run --example multi_series`，确认多条 series 与对数轴配置生效。
-3. 启用 `time` feature 运行 `cargo run --example time_axis --features time`。
+1. 运行 `cargo run --example showcase`，确认各 Tab 正常渲染与交互。
+2. 切换 Live Stream，观察实时追加与 Pin/缩放/框选。
+3. 启用 `time` feature 运行 `cargo run --example showcase --features time`，确认时间轴格式化。
