@@ -581,8 +581,8 @@ fn build_axes(
     y_layout: &AxisLayout,
     plot_rect: ScreenRect,
     transform: &Transform,
-    _x_axis_rect: ScreenRect,
-    _y_axis_rect: ScreenRect,
+    x_axis_rect: ScreenRect,
+    y_axis_rect: ScreenRect,
     measurer: &GpuiTextMeasurer<'_>,
 ) {
     let theme = plot.theme();
@@ -625,9 +625,13 @@ fn build_axes(
 
             if tick.is_major && !tick.label.is_empty() {
                 let size = measurer.measure(&tick.label, plot.x_axis().label_size());
-                let pos = ScreenPoint::new(
+                let pos = clamp_label_position(
+                    ScreenPoint::new(
                     x - size.0 * 0.5,
                     plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
+                    ),
+                    size,
+                    x_axis_rect,
                 );
                 let label_left = pos.x;
                 let label_right = pos.x + size.0;
@@ -668,9 +672,13 @@ fn build_axes(
 
             if tick.is_major && !tick.label.is_empty() {
                 let size = measurer.measure(&tick.label, plot.y_axis().label_size());
-                let pos = ScreenPoint::new(
+                let pos = clamp_label_position(
+                    ScreenPoint::new(
                     plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
                     y - size.1 * 0.5,
+                    ),
+                    size,
+                    y_axis_rect,
                 );
                 let label_top = pos.y;
                 let label_bottom = pos.y + size.1;
@@ -720,9 +728,13 @@ fn build_axis_titles(
     let theme = plot.theme();
     if let Some(title) = axis_title_text(plot.x_axis()) {
         let size = measurer.measure(&title, plot.x_axis().label_size());
-        let pos = ScreenPoint::new(
-            plot_rect.min.x + (plot_rect.width() - size.0) * 0.5,
-            x_axis_rect.max.y - size.1 - AXIS_PADDING,
+        let pos = clamp_label_position(
+            ScreenPoint::new(
+                plot_rect.min.x + (plot_rect.width() - size.0) * 0.5,
+                x_axis_rect.max.y - size.1 - AXIS_PADDING,
+            ),
+            size,
+            x_axis_rect,
         );
         render.push(RenderCommand::Text {
             position: pos,
@@ -735,9 +747,13 @@ fn build_axis_titles(
     }
 
     if let Some(title) = axis_title_text(plot.y_axis()) {
-        let pos = ScreenPoint::new(
-            y_axis_rect.min.x + AXIS_PADDING,
-            y_axis_rect.min.y + AXIS_PADDING,
+        let pos = clamp_label_position(
+            ScreenPoint::new(
+                y_axis_rect.min.x + AXIS_PADDING,
+                y_axis_rect.min.y + AXIS_PADDING,
+            ),
+            measurer.measure(&title, plot.y_axis().label_size()),
+            y_axis_rect,
         );
         render.push(RenderCommand::Text {
             position: pos,
@@ -748,6 +764,19 @@ fn build_axis_titles(
             },
         });
     }
+}
+
+fn clamp_label_position(
+    pos: ScreenPoint,
+    size: (f32, f32),
+    rect: ScreenRect,
+) -> ScreenPoint {
+    let max_x = (rect.max.x - size.0).max(rect.min.x);
+    let max_y = (rect.max.y - size.1).max(rect.min.y);
+    ScreenPoint::new(
+        pos.x.clamp(rect.min.x, max_x),
+        pos.y.clamp(rect.min.y, max_y),
+    )
 }
 
 fn build_hover(
