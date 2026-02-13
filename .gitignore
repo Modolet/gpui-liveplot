@@ -1,6 +1,7 @@
 /target
 .direnv/
 .envrc
+AGENTS.md
 
 
 # Added by cargo
