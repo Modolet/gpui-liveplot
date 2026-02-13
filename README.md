@@ -27,7 +27,7 @@ plot.refresh_viewport(0.05, 1e-6);
 
 ## Examples
 
-- GUI 展示（包含实时追加、多序列、函数采样、时间轴与交互）：
+- 简洁 GUI 展示（实时追加 + 时间轴 + 交互）：
   - `cargo run --example showcase`
   - 如需时间轴格式化：`cargo run --example showcase --features time`
 
