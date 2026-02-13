@@ -66,6 +66,8 @@ pub struct AxisConfig {
 
 impl AxisConfig {
     /// Create a new axis configuration.
+    ///
+    /// Use [`AxisConfig::builder`] for a fluent configuration style.
     pub fn new() -> Self {
         Self {
             title: None,
@@ -80,62 +82,9 @@ impl AxisConfig {
         }
     }
 
-    /// Set the axis title.
-    pub fn with_title(mut self, title: impl Into<String>) -> Self {
-        self.title = Some(title.into());
-        self
-    }
-
-    /// Set the axis units.
-    pub fn with_units(mut self, units: impl Into<String>) -> Self {
-        self.units = Some(units.into());
-        self
-    }
-
-    /// Set the axis formatter.
-    ///
-    /// Custom formatters override the default numeric formatting.
-    pub fn with_formatter(mut self, formatter: AxisFormatter) -> Self {
-        self.formatter = formatter;
-        self
-    }
-
-    /// Set the tick configuration.
-    ///
-    /// The `pixel_spacing` hint determines how dense major ticks are.
-    pub fn with_tick_config(mut self, config: TickConfig) -> Self {
-        self.tick_config = config;
-        self
-    }
-
-    /// Enable or disable major grid lines.
-    pub fn with_grid(mut self, enabled: bool) -> Self {
-        self.show_grid = enabled;
-        self
-    }
-
-    /// Enable or disable minor grid lines.
-    pub fn with_minor_grid(mut self, enabled: bool) -> Self {
-        self.show_minor_grid = enabled;
-        self
-    }
-
-    /// Enable or disable the zero line.
-    pub fn with_zero_line(mut self, enabled: bool) -> Self {
-        self.show_zero_line = enabled;
-        self
-    }
-
-    /// Enable or disable the axis border.
-    pub fn with_border(mut self, enabled: bool) -> Self {
-        self.show_border = enabled;
-        self
-    }
-
-    /// Set the tick label font size.
-    pub fn with_label_size(mut self, size: f32) -> Self {
-        self.label_size = size;
-        self
+    /// Start building an axis configuration.
+    pub fn builder() -> AxisConfigBuilder {
+        AxisConfigBuilder { axis: Self::new() }
     }
 
     /// Access the axis title.
@@ -186,6 +135,77 @@ impl AxisConfig {
     /// Access the tick label font size.
     pub fn label_size(&self) -> f32 {
         self.label_size
+    }
+}
+
+/// Builder for [`AxisConfig`].
+#[derive(Debug, Clone)]
+pub struct AxisConfigBuilder {
+    axis: AxisConfig,
+}
+
+impl AxisConfigBuilder {
+    /// Set the axis title.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.axis.title = Some(title.into());
+        self
+    }
+
+    /// Set the axis units.
+    pub fn units(mut self, units: impl Into<String>) -> Self {
+        self.axis.units = Some(units.into());
+        self
+    }
+
+    /// Set the axis formatter.
+    ///
+    /// Custom formatters override the default numeric formatting.
+    pub fn formatter(mut self, formatter: AxisFormatter) -> Self {
+        self.axis.formatter = formatter;
+        self
+    }
+
+    /// Set the tick configuration.
+    ///
+    /// The `pixel_spacing` hint determines how dense major ticks are.
+    pub fn tick_config(mut self, config: TickConfig) -> Self {
+        self.axis.tick_config = config;
+        self
+    }
+
+    /// Enable or disable major grid lines.
+    pub fn grid(mut self, enabled: bool) -> Self {
+        self.axis.show_grid = enabled;
+        self
+    }
+
+    /// Enable or disable minor grid lines.
+    pub fn minor_grid(mut self, enabled: bool) -> Self {
+        self.axis.show_minor_grid = enabled;
+        self
+    }
+
+    /// Enable or disable the zero line.
+    pub fn zero_line(mut self, enabled: bool) -> Self {
+        self.axis.show_zero_line = enabled;
+        self
+    }
+
+    /// Enable or disable the axis border.
+    pub fn border(mut self, enabled: bool) -> Self {
+        self.axis.show_border = enabled;
+        self
+    }
+
+    /// Set the tick label font size.
+    pub fn label_size(mut self, size: f32) -> Self {
+        self.axis.label_size = size;
+        self
+    }
+
+    /// Build the axis configuration.
+    pub fn build(self) -> AxisConfig {
+        self.axis
     }
 }
 

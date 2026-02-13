@@ -42,7 +42,7 @@ pub mod view;
 
 pub mod gpui_backend;
 
-pub use axis::{AxisConfig, AxisFormatter, TickConfig};
+pub use axis::{AxisConfig, AxisConfigBuilder, AxisFormatter, TickConfig};
 pub use datasource::AppendError;
 pub use geom::Point;
 pub use interaction::Pin;

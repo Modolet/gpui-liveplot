@@ -30,8 +30,8 @@ fn main() {
 
             let mut plot = Plot::builder()
                 .theme(Theme::dark())
-                .x_axis(AxisConfig::new().with_title("Sample"))
-                .y_axis(AxisConfig::new().with_title("Amplitude"))
+                .x_axis(AxisConfig::builder().title("Sample").build())
+                .y_axis(AxisConfig::builder().title("Amplitude").build())
                 .build();
             plot.add_series(series);
 
