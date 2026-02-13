@@ -1,6 +1,4 @@
 //! Coordinate transforms between data and screen space.
-
-use crate::axis::AxisScale;
 use crate::geom::{Point, ScreenPoint, ScreenRect};
 use crate::view::{Range, Viewport};
 
@@ -11,30 +9,21 @@ const MIN_SPAN: f64 = 1e-12;
 pub(crate) struct Transform {
     viewport: Viewport,
     screen: ScreenRect,
-    x_scale: AxisScale,
-    y_scale: AxisScale,
     x_axis: Range,
     y_axis: Range,
 }
 
 impl Transform {
     /// Create a transform for the given viewport and screen rectangle.
-    pub(crate) fn new(
-        viewport: Viewport,
-        screen: ScreenRect,
-        x_scale: AxisScale,
-        y_scale: AxisScale,
-    ) -> Option<Self> {
+    pub(crate) fn new(viewport: Viewport, screen: ScreenRect) -> Option<Self> {
         if !screen.is_valid() {
             return None;
         }
-        let x_axis = map_range(viewport.x.with_min_span(MIN_SPAN), x_scale)?;
-        let y_axis = map_range(viewport.y.with_min_span(MIN_SPAN), y_scale)?;
+        let x_axis = map_range(viewport.x.with_min_span(MIN_SPAN))?;
+        let y_axis = map_range(viewport.y.with_min_span(MIN_SPAN))?;
         Some(Self {
             viewport,
             screen,
-            x_scale,
-            y_scale,
             x_axis,
             y_axis,
         })
@@ -52,10 +41,11 @@ impl Transform {
 
     /// Map a data point into screen space.
     pub(crate) fn data_to_screen(&self, point: Point) -> Option<ScreenPoint> {
-        let x = self.x_scale.map_value(point.x)?;
-        let y = self.y_scale.map_value(point.y)?;
-        let x_norm = (x - self.x_axis.min) / self.x_axis.span();
-        let y_norm = (y - self.y_axis.min) / self.y_axis.span();
+        if !point.x.is_finite() || !point.y.is_finite() {
+            return None;
+        }
+        let x_norm = (point.x - self.x_axis.min) / self.x_axis.span();
+        let y_norm = (point.y - self.y_axis.min) / self.y_axis.span();
         let sx = self.screen.min.x as f64 + x_norm * self.screen.width() as f64;
         let sy = self.screen.max.y as f64 - y_norm * self.screen.height() as f64;
         Some(ScreenPoint::new(sx as f32, sy as f32))
@@ -67,29 +57,26 @@ impl Transform {
         let y_norm = (self.screen.max.y as f64 - point.y as f64) / self.screen.height() as f64;
         let x_axis = self.x_axis.min + x_norm * self.x_axis.span();
         let y_axis = self.y_axis.min + y_norm * self.y_axis.span();
-        let x = self.x_scale.invert_value(x_axis)?;
-        let y = self.y_scale.invert_value(y_axis)?;
-        Some(Point::new(x, y))
+        Some(Point::new(x_axis, y_axis))
     }
 }
 
-fn map_range(range: Range, scale: AxisScale) -> Option<Range> {
-    let min = scale.map_value(range.min)?;
-    let max = scale.map_value(range.max)?;
-    Some(Range::new(min, max))
+fn map_range(range: Range) -> Option<Range> {
+    if !range.is_finite() {
+        return None;
+    }
+    Some(range)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::axis::AxisScale;
 
     #[test]
     fn linear_roundtrip() {
         let viewport = Viewport::new(Range::new(0.0, 10.0), Range::new(0.0, 10.0));
         let screen = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(100.0, 100.0));
-        let transform = Transform::new(viewport, screen, AxisScale::Linear, AxisScale::Linear)
-            .expect("valid transform");
+        let transform = Transform::new(viewport, screen).expect("valid transform");
         let point = Point::new(5.0, 7.5);
         let screen_point = transform.data_to_screen(point).unwrap();
         let roundtrip = transform.screen_to_data(screen_point).unwrap();

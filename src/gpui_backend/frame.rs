@@ -16,7 +16,9 @@ use crate::view::{Range, Viewport};
 
 use super::config::PlotViewConfig;
 use super::constants::*;
-use super::geometry::{clamp_point, distance_sq, normalized_rect, rect_intersects, rect_intersects_any};
+use super::geometry::{
+    clamp_point, distance_sq, normalized_rect, rect_intersects, rect_intersects_any,
+};
 use super::hover::update_hover_target;
 use super::state::{LegendEntry, LegendLayout, PlotUiState};
 use super::text::GpuiTextMeasurer;
@@ -111,12 +113,7 @@ pub(crate) fn build_frame(
     };
     state.plot_rect = Some(plot_rect);
 
-    let transform = Transform::new(
-        viewport,
-        plot_rect,
-        plot.x_axis().scale(),
-        plot.y_axis().scale(),
-    );
+    let transform = Transform::new(viewport, plot_rect);
     state.transform = transform.clone();
 
     if let Some(transform) = transform {
@@ -321,8 +318,6 @@ fn build_series(
         let key = RenderCacheKey {
             viewport: transform.viewport(),
             size,
-            x_scale: plot.x_axis().scale(),
-            y_scale: plot.y_axis().scale(),
             generation: series.generation(),
         };
         if cache.key.as_ref() != Some(&key) {
@@ -659,10 +654,8 @@ fn build_axes(
                 );
                 let label_left = pos.x;
                 let label_right = pos.x + size.0;
-                let label_rect = ScreenRect::new(
-                    pos,
-                    ScreenPoint::new(label_right, pos.y + size.1),
-                );
+                let label_rect =
+                    ScreenRect::new(pos, ScreenPoint::new(label_right, pos.y + size.1));
                 let overlaps_title = x_title_rect
                     .map(|rect| rect_intersects(label_rect, rect))
                     .unwrap_or(false);
@@ -713,10 +706,8 @@ fn build_axes(
                 );
                 let label_top = pos.y;
                 let label_bottom = pos.y + size.1;
-                let label_rect = ScreenRect::new(
-                    pos,
-                    ScreenPoint::new(pos.x + size.0, label_bottom),
-                );
+                let label_rect =
+                    ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, label_bottom));
                 let overlaps_title = y_title_rect
                     .map(|rect| rect_intersects(label_rect, rect))
                     .unwrap_or(false);
@@ -804,11 +795,7 @@ fn build_axis_titles(
     }
 }
 
-fn clamp_label_position(
-    pos: ScreenPoint,
-    size: (f32, f32),
-    rect: ScreenRect,
-) -> ScreenPoint {
+fn clamp_label_position(pos: ScreenPoint, size: (f32, f32), rect: ScreenRect) -> ScreenPoint {
     let max_x = (rect.max.x - size.0).max(rect.min.x);
     let max_y = (rect.max.y - size.1).max(rect.min.y);
     ScreenPoint::new(

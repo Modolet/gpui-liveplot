@@ -9,45 +9,6 @@ use std::sync::Arc;
 
 use crate::view::Range;
 
-/// Axis scale type shared by all series in a plot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AxisScale {
-    /// Linear scaling.
-    Linear,
-}
-
-impl AxisScale {
-    /// Map a value into axis space.
-    ///
-    /// Returns `None` for non-finite values.
-    pub fn map_value(self, value: f64) -> Option<f64> {
-        if !value.is_finite() {
-            return None;
-        }
-        Some(value)
-    }
-
-    /// Invert a value from axis space back into data space.
-    ///
-    /// Returns `None` for non-finite values.
-    pub fn invert_value(self, value: f64) -> Option<f64> {
-        if !value.is_finite() {
-            return None;
-        }
-        Some(value)
-    }
-
-    /// Check whether a data range is valid for this scale.
-    ///
-    /// Time and linear scales share the same validity rules.
-    pub fn is_range_valid(self, range: Range) -> bool {
-        if !range.is_finite() {
-            return false;
-        }
-        true
-    }
-}
-
 /// Formatter for axis tick labels.
 ///
 /// Use [`AxisFormatter::Custom`] to provide a locale-aware or domain-specific
@@ -92,7 +53,6 @@ impl std::fmt::Debug for AxisFormatter {
 /// scaling, ticks, formatting, and grid/border appearance.
 #[derive(Debug, Clone)]
 pub struct AxisConfig {
-    scale: AxisScale,
     title: Option<String>,
     units: Option<String>,
     formatter: AxisFormatter,
@@ -106,11 +66,8 @@ pub struct AxisConfig {
 
 impl AxisConfig {
     /// Create a new axis configuration.
-    ///
-    /// Most users should prefer [`AxisConfig::linear`].
-    pub fn new(scale: AxisScale) -> Self {
+    pub fn new() -> Self {
         Self {
-            scale,
             title: None,
             units: None,
             formatter: AxisFormatter::default(),
@@ -125,18 +82,7 @@ impl AxisConfig {
 
     /// Create a linear axis configuration.
     pub fn linear() -> Self {
-        Self::new(AxisScale::Linear)
-    }
-
-    /// Access the axis scale.
-    pub fn scale(&self) -> AxisScale {
-        self.scale
-    }
-
-    /// Set the axis scale.
-    pub fn with_scale(mut self, scale: AxisScale) -> Self {
-        self.scale = scale;
-        self
+        Self::new()
     }
 
     /// Set the axis title.
@@ -308,7 +254,6 @@ impl Default for AxisLayout {
 struct AxisLayoutKey {
     range: Range,
     pixels: u32,
-    scale: AxisScale,
     tick_config: TickConfig,
 }
 
@@ -331,7 +276,6 @@ impl AxisLayoutCache {
         let key = AxisLayoutKey {
             range,
             pixels,
-            scale: axis.scale(),
             tick_config: axis.tick_config(),
         };
         if self.key.as_ref() == Some(&key) {
@@ -369,9 +313,7 @@ fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tic
     if !range.is_valid() || pixel_length <= 0.0 {
         return Vec::new();
     }
-    match axis.scale() {
-        AxisScale::Linear => generate_linear_ticks(axis, range, pixel_length),
-    }
+    generate_linear_ticks(axis, range, pixel_length)
 }
 
 fn generate_linear_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {

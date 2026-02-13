@@ -421,7 +421,7 @@ fn apply_manual_view(
 ) {
     plot.set_manual_view(viewport);
     state.viewport = Some(viewport);
-    state.transform = Transform::new(viewport, rect, plot.x_axis().scale(), plot.y_axis().scale());
+    state.transform = Transform::new(viewport, rect);
 }
 
 fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {

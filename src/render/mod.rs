@@ -3,7 +3,6 @@
 //! These types are backend-agnostic and are used by render backends (such as the
 //! GPUI backend) to describe how plots should be drawn.
 
-use crate::axis::AxisScale;
 use crate::geom::{Point, ScreenPoint, ScreenRect};
 use crate::transform::Transform;
 use crate::view::Viewport;
@@ -213,10 +212,6 @@ pub(crate) struct RenderCacheKey {
     pub viewport: Viewport,
     /// Plot size in pixels.
     pub size: (u32, u32),
-    /// X axis scale.
-    pub x_scale: AxisScale,
-    /// Y axis scale.
-    pub y_scale: AxisScale,
     /// Data generation for cache invalidation.
     pub generation: u64,
 }
@@ -341,7 +336,6 @@ fn region_code(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::axis::AxisScale;
     use crate::geom::Point;
     use crate::view::Range;
     use crate::view::Viewport;
@@ -360,8 +354,7 @@ mod tests {
     fn build_segments_with_transform() {
         let viewport = Viewport::new(Range::new(0.0, 1.0), Range::new(0.0, 1.0));
         let rect = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(10.0, 10.0));
-        let transform = Transform::new(viewport, rect, AxisScale::Linear, AxisScale::Linear)
-            .expect("valid transform");
+        let transform = Transform::new(viewport, rect).expect("valid transform");
         let points = [Point::new(0.0, 0.0), Point::new(1.0, 1.0)];
         let mut out = Vec::new();
         build_line_segments(&points, &transform, rect, &mut out);
