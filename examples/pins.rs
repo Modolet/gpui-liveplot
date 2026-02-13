@@ -37,7 +37,7 @@ fn main() {
 
             let config = PlotViewConfig {
                 show_legend: false,
-                show_hover: false,
+                show_hover: true,
                 ..Default::default()
             };
 
