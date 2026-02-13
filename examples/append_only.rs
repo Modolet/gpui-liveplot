@@ -45,8 +45,8 @@ fn build_view(cx: &mut gpui::Context<LiveDemo>) -> (gpui::Entity<GpuiPlotView>, 
 
     let mut plot = Plot::builder()
         .theme(Theme::dark())
-        .x_axis(AxisConfig::linear().with_title("Sample"))
-        .y_axis(AxisConfig::linear().with_title("Value"))
+        .x_axis(AxisConfig::new().with_title("Sample"))
+        .y_axis(AxisConfig::new().with_title("Value"))
         .view(View::FollowLastN { points: 800 })
         .build();
     plot.add_series(series);

@@ -80,11 +80,6 @@ impl AxisConfig {
         }
     }
 
-    /// Create a linear axis configuration.
-    pub fn linear() -> Self {
-        Self::new()
-    }
-
     /// Set the axis title.
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
@@ -196,7 +191,7 @@ impl AxisConfig {
 
 impl Default for AxisConfig {
     fn default() -> Self {
-        Self::linear()
+        Self::new()
     }
 }
 
@@ -383,7 +378,7 @@ mod tests {
 
     #[test]
     fn linear_ticks_generate_major() {
-        let axis = AxisConfig::linear();
+        let axis = AxisConfig::new();
         let ticks = generate_ticks(&axis, Range::new(0.0, 10.0), 400.0);
         assert!(ticks.iter().any(|tick| tick.is_major));
     }
