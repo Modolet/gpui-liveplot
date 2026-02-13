@@ -191,29 +191,29 @@ impl SummaryLevels {
 
 /// Scratch buffers for decimation.
 #[derive(Debug, Default, Clone)]
-pub struct DecimationScratch {
+pub(crate) struct DecimationScratch {
     buckets: Vec<Bucket>,
     points: Vec<Point>,
 }
 
 impl DecimationScratch {
     /// Create an empty scratch buffer.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Clear the output points.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.points.clear();
     }
 
     /// Access the output points.
-    pub fn output(&self) -> &[Point] {
+    pub(crate) fn output(&self) -> &[Point] {
         &self.points
     }
 
     /// Access the output points mutably.
-    pub fn output_mut(&mut self) -> &mut Vec<Point> {
+    pub(crate) fn output_mut(&mut self) -> &mut Vec<Point> {
         &mut self.points
     }
 }

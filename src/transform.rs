@@ -8,7 +8,7 @@ const MIN_SPAN: f64 = 1e-12;
 
 /// Transform from data coordinates into screen coordinates.
 #[derive(Debug, Clone)]
-pub struct Transform {
+pub(crate) struct Transform {
     viewport: Viewport,
     screen: ScreenRect,
     x_scale: AxisScale,
@@ -19,7 +19,7 @@ pub struct Transform {
 
 impl Transform {
     /// Create a transform for the given viewport and screen rectangle.
-    pub fn new(
+    pub(crate) fn new(
         viewport: Viewport,
         screen: ScreenRect,
         x_scale: AxisScale,
@@ -41,17 +41,17 @@ impl Transform {
     }
 
     /// Access the viewport.
-    pub fn viewport(&self) -> Viewport {
+    pub(crate) fn viewport(&self) -> Viewport {
         self.viewport
     }
 
     /// Access the screen rectangle.
-    pub fn screen(&self) -> ScreenRect {
+    pub(crate) fn screen(&self) -> ScreenRect {
         self.screen
     }
 
     /// Map a data point into screen space.
-    pub fn data_to_screen(&self, point: Point) -> Option<ScreenPoint> {
+    pub(crate) fn data_to_screen(&self, point: Point) -> Option<ScreenPoint> {
         let x = self.x_scale.map_value(point.x)?;
         let y = self.y_scale.map_value(point.y)?;
         let x_norm = (x - self.x_axis.min) / self.x_axis.span();
@@ -62,7 +62,7 @@ impl Transform {
     }
 
     /// Map a screen point into data space.
-    pub fn screen_to_data(&self, point: ScreenPoint) -> Option<Point> {
+    pub(crate) fn screen_to_data(&self, point: ScreenPoint) -> Option<Point> {
         let x_norm = (point.x as f64 - self.screen.min.x as f64) / self.screen.width() as f64;
         let y_norm = (self.screen.max.y as f64 - point.y as f64) / self.screen.height() as f64;
         let x_axis = self.x_axis.min + x_norm * self.x_axis.span();

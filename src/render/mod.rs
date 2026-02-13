@@ -82,7 +82,7 @@ impl Default for MarkerStyle {
 
 /// Rectangle styling.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RectStyle {
+pub(crate) struct RectStyle {
     /// Fill color.
     pub fill: Color,
     /// Stroke color.
@@ -103,7 +103,7 @@ impl Default for RectStyle {
 
 /// Text styling.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TextStyle {
+pub(crate) struct TextStyle {
     /// Text color.
     pub color: Color,
     /// Font size in pixels.
@@ -121,7 +121,7 @@ impl Default for TextStyle {
 
 /// A line segment in screen space.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct LineSegment {
+pub(crate) struct LineSegment {
     /// Segment start.
     pub start: ScreenPoint,
     /// Segment end.
@@ -130,14 +130,14 @@ pub struct LineSegment {
 
 impl LineSegment {
     /// Create a new line segment.
-    pub fn new(start: ScreenPoint, end: ScreenPoint) -> Self {
+    pub(crate) fn new(start: ScreenPoint, end: ScreenPoint) -> Self {
         Self { start, end }
     }
 }
 
 /// Render command list.
 #[derive(Debug, Clone)]
-pub enum RenderCommand {
+pub(crate) enum RenderCommand {
     /// Start clipping to a rectangle.
     ClipRect(ScreenRect),
     /// End clipping.
@@ -176,30 +176,30 @@ pub enum RenderCommand {
 
 /// Aggregated render commands.
 #[derive(Debug, Default, Clone)]
-pub struct RenderList {
+pub(crate) struct RenderList {
     commands: Vec<RenderCommand>,
 }
 
 impl RenderList {
     /// Create an empty render list.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// Push a render command.
-    pub fn push(&mut self, command: RenderCommand) {
+    pub(crate) fn push(&mut self, command: RenderCommand) {
         self.commands.push(command);
     }
 
     /// Access all render commands.
-    pub fn commands(&self) -> &[RenderCommand] {
+    pub(crate) fn commands(&self) -> &[RenderCommand] {
         &self.commands
     }
 }
 
 /// Cache key for rendered series data.
 #[derive(Debug, Clone, PartialEq)]
-pub struct RenderCacheKey {
+pub(crate) struct RenderCacheKey {
     /// Viewport used for decimation.
     pub viewport: Viewport,
     /// Plot size in pixels.
@@ -213,7 +213,7 @@ pub struct RenderCacheKey {
 }
 
 /// Build clipped line segments from data points.
-pub fn build_line_segments(
+pub(crate) fn build_line_segments(
     points: &[Point],
     transform: &Transform,
     clip: ScreenRect,
@@ -237,7 +237,7 @@ pub fn build_line_segments(
 }
 
 /// Build clipped scatter points from data points.
-pub fn build_scatter_points(
+pub(crate) fn build_scatter_points(
     points: &[Point],
     transform: &Transform,
     clip: ScreenRect,

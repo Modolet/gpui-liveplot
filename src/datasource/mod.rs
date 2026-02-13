@@ -3,15 +3,15 @@
 mod store;
 mod summary;
 
-pub use store::SeriesStore;
-pub use summary::DecimationScratch;
+pub(crate) use store::SeriesStore;
+pub(crate) use summary::DecimationScratch;
 
 use crate::geom::Point;
 use crate::view::{Range, Viewport};
 
 /// Mode of the X axis data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum XMode {
+pub(crate) enum XMode {
     /// X values are implicit indices.
     Index,
     /// X values are explicitly provided.
@@ -29,7 +29,7 @@ pub enum AppendError {
 
 /// Append-only data storage with incremental bounds tracking.
 #[derive(Debug, Clone)]
-pub struct AppendOnlyData {
+pub(crate) struct AppendOnlyData {
     points: Vec<Point>,
     x_mode: XMode,
     monotonic: bool,

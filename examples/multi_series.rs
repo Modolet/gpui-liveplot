@@ -1,7 +1,4 @@
-use gpui_plot::{
-    AxisConfig, DecimationScratch, LineStyle, MarkerStyle, Plot, Point, ScreenPoint, ScreenRect,
-    Series, SeriesKind, Theme, Transform,
-};
+use gpui_plot::{AxisConfig, LineStyle, MarkerStyle, Plot, Point, Series, SeriesKind, Theme};
 
 fn main() {
     let mut plot = Plot::builder()
@@ -10,14 +7,21 @@ fn main() {
         .y_axis(AxisConfig::log10())
         .build();
 
+    let line_points: Vec<Point> = (1..=1000)
+        .map(|i| Point::new(i as f64, (i as f64 * 0.01).exp()))
+        .collect();
+    let scatter_points: Vec<Point> = (1..=200)
+        .map(|i| Point::new(i as f64 * 5.0, (i as f64 * 0.02).exp()))
+        .collect();
+
     let line = Series::from_iter_points(
         "sensor-a",
-        (1..=1000).map(|i| Point::new(i as f64, (i as f64 * 0.01).exp())),
+        line_points.iter().copied(),
         SeriesKind::Line(LineStyle::default()),
     );
     let scatter = Series::from_iter_points(
         "sensor-b",
-        (1..=200).map(|i| Point::new(i as f64 * 5.0, (i as f64 * 0.02).exp())),
+        scatter_points.iter().copied(),
         SeriesKind::Scatter(MarkerStyle::default()),
     );
 
@@ -25,22 +29,11 @@ fn main() {
     plot.add_series(scatter);
     plot.refresh_viewport(0.05, 1e-6);
 
-    let viewport = plot.viewport().expect("viewport available");
-    let rect = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(1024.0, 640.0));
-    let transform =
-        Transform::new(viewport, rect, plot.x_axis().scale(), plot.y_axis().scale()).unwrap();
+    let _ = plot.viewport().expect("viewport available");
 
-    let mut scratch = DecimationScratch::new();
-    for series in plot.series() {
-        let decimated = series.data().decimate(viewport.x, 1024, &mut scratch);
-        println!(
-            "{}: {} raw -> {} decimated",
-            series.name(),
-            series.data().data().len(),
-            decimated.len()
-        );
-        let _ = transform;
-    }
-
-    println!("multi-series example complete");
+    println!(
+        "multi-series example ready: line={} scatter={}",
+        line_points.len(),
+        scatter_points.len()
+    );
 }

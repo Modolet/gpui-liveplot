@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::datasource::{AppendError, AppendOnlyData, SeriesStore, XMode};
+use crate::datasource::{AppendError, AppendOnlyData, SeriesStore};
 use crate::geom::Point;
 use crate::render::{LineStyle, MarkerStyle};
 use crate::view::Viewport;
@@ -62,7 +62,11 @@ impl Series {
     }
 
     /// Create a series from existing append-only data.
-    pub fn with_data(name: impl Into<String>, data: AppendOnlyData, kind: SeriesKind) -> Self {
+    pub(crate) fn with_data(
+        name: impl Into<String>,
+        data: AppendOnlyData,
+        kind: SeriesKind,
+    ) -> Self {
         Self {
             id: SeriesId::next(),
             name: name.into(),
@@ -125,13 +129,8 @@ impl Series {
     }
 
     /// Access the series data.
-    pub fn data(&self) -> &SeriesStore {
+    pub(crate) fn data(&self) -> &SeriesStore {
         &self.data
-    }
-
-    /// Access the series data mutably.
-    pub fn data_mut(&mut self) -> &mut SeriesStore {
-        &mut self.data
     }
 
     /// Append a Y value to an indexed series.
@@ -162,10 +161,5 @@ impl Series {
     /// Toggle series visibility.
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
-    }
-
-    /// Access the X mode for the series.
-    pub fn x_mode(&self) -> XMode {
-        self.data.data().x_mode()
     }
 }

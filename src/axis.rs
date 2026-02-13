@@ -281,22 +281,22 @@ impl Default for TickConfig {
 
 /// Axis tick metadata.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Tick {
+pub(crate) struct Tick {
     /// Tick value in data space.
-    pub value: f64,
+    pub(crate) value: f64,
     /// Tick label.
-    pub label: String,
+    pub(crate) label: String,
     /// Whether the tick is a major tick.
-    pub is_major: bool,
+    pub(crate) is_major: bool,
 }
 
 /// Layout information for axis labels and ticks.
 #[derive(Debug, Clone)]
-pub struct AxisLayout {
+pub(crate) struct AxisLayout {
     /// Ticks to render.
-    pub ticks: Vec<Tick>,
+    pub(crate) ticks: Vec<Tick>,
     /// Maximum tick label size (width, height).
-    pub max_label_size: (f32, f32),
+    pub(crate) max_label_size: (f32, f32),
 }
 
 impl Default for AxisLayout {
@@ -318,14 +318,14 @@ struct AxisLayoutKey {
 
 /// Cached layout for axis ticks and labels.
 #[derive(Debug, Default, Clone)]
-pub struct AxisLayoutCache {
+pub(crate) struct AxisLayoutCache {
     key: Option<AxisLayoutKey>,
     layout: AxisLayout,
 }
 
 impl AxisLayoutCache {
     /// Update the cache if inputs have changed.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         axis: &AxisConfig,
         range: Range,
@@ -360,33 +360,16 @@ impl AxisLayoutCache {
         self.key = Some(key);
         &self.layout
     }
-
-    /// Access the cached layout.
-    pub fn layout(&self) -> &AxisLayout {
-        &self.layout
-    }
 }
 
 /// Text measurement interface for layout.
-pub trait TextMeasurer {
+pub(crate) trait TextMeasurer {
     /// Measure a text label at the given size.
     fn measure(&self, text: &str, size: f32) -> (f32, f32);
 }
 
-/// Approximate text measurer for non-UI contexts.
-#[derive(Debug, Default, Clone)]
-pub struct ApproxTextMeasurer;
-
-impl TextMeasurer for ApproxTextMeasurer {
-    fn measure(&self, text: &str, size: f32) -> (f32, f32) {
-        let width = text.chars().count() as f32 * size * 0.6;
-        let height = size * 1.2;
-        (width, height)
-    }
-}
-
 /// Generate axis ticks for a range and pixel length.
-pub fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
+fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
     if !range.is_valid() || pixel_length <= 0.0 {
         return Vec::new();
     }

@@ -1,13 +1,13 @@
 //! Interaction helpers for panning, zooming, and pin selection.
 
 use crate::geom::{Point, ScreenPoint, ScreenRect};
-use crate::series::{Series, SeriesId};
+use crate::series::SeriesId;
 use crate::transform::Transform;
 use crate::view::{Range, Viewport};
 
 /// Interaction hit regions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HitRegion {
+pub(crate) enum HitRegion {
     /// Plot data area.
     Plot,
     /// X axis area.
@@ -20,18 +20,18 @@ pub enum HitRegion {
 
 /// Screen regions for hit testing.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PlotRegions {
+pub(crate) struct PlotRegions {
     /// Plot data area.
-    pub plot: ScreenRect,
+    pub(crate) plot: ScreenRect,
     /// X axis area.
-    pub x_axis: ScreenRect,
+    pub(crate) x_axis: ScreenRect,
     /// Y axis area.
-    pub y_axis: ScreenRect,
+    pub(crate) y_axis: ScreenRect,
 }
 
 impl PlotRegions {
     /// Determine which region contains the point.
-    pub fn hit_test(&self, point: ScreenPoint) -> HitRegion {
+    pub(crate) fn hit_test(&self, point: ScreenPoint) -> HitRegion {
         if contains(self.plot, point) {
             HitRegion::Plot
         } else if contains(self.x_axis, point) {
@@ -53,17 +53,8 @@ pub struct Pin {
     pub point_index: usize,
 }
 
-/// Pin hit information.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PinHit {
-    /// Pin identity.
-    pub pin: Pin,
-    /// Distance squared in screen pixels.
-    pub distance_sq: f32,
-}
-
 /// Toggle a pin in the list. Returns true if added, false if removed.
-pub fn toggle_pin(pins: &mut Vec<Pin>, pin: Pin) -> bool {
+pub(crate) fn toggle_pin(pins: &mut Vec<Pin>, pin: Pin) -> bool {
     if let Some(index) = pins.iter().position(|existing| *existing == pin) {
         pins.swap_remove(index);
         false
@@ -74,7 +65,7 @@ pub fn toggle_pin(pins: &mut Vec<Pin>, pin: Pin) -> bool {
 }
 
 /// Pan a viewport by a pixel delta.
-pub fn pan_viewport(
+pub(crate) fn pan_viewport(
     viewport: Viewport,
     delta_pixels: ScreenPoint,
     transform: &Transform,
@@ -90,7 +81,12 @@ pub fn pan_viewport(
 }
 
 /// Zoom a viewport around a center point.
-pub fn zoom_viewport(viewport: Viewport, center: Point, factor_x: f64, factor_y: f64) -> Viewport {
+pub(crate) fn zoom_viewport(
+    viewport: Viewport,
+    center: Point,
+    factor_x: f64,
+    factor_y: f64,
+) -> Viewport {
     let x_min = center.x + (viewport.x.min - center.x) * factor_x;
     let x_max = center.x + (viewport.x.max - center.x) * factor_x;
     let y_min = center.y + (viewport.y.min - center.y) * factor_y;
@@ -99,7 +95,7 @@ pub fn zoom_viewport(viewport: Viewport, center: Point, factor_x: f64, factor_y:
 }
 
 /// Convert a zoom rectangle into a new viewport.
-pub fn zoom_to_rect(
+pub(crate) fn zoom_to_rect(
     viewport: Viewport,
     rect: ScreenRect,
     transform: &Transform,
@@ -116,62 +112,12 @@ pub fn zoom_to_rect(
 }
 
 /// Compute a zoom factor from a drag delta and axis length.
-pub fn zoom_factor_from_drag(delta_pixels: f32, axis_pixels: f32) -> f64 {
+pub(crate) fn zoom_factor_from_drag(delta_pixels: f32, axis_pixels: f32) -> f64 {
     if axis_pixels <= 0.0 {
         return 1.0;
     }
     let normalized = delta_pixels as f64 / axis_pixels as f64;
     (1.0 - normalized).clamp(0.1, 10.0)
-}
-
-/// Find the nearest point to the cursor within the threshold.
-pub fn find_nearest_point(
-    series: &[Series],
-    transform: &Transform,
-    cursor: ScreenPoint,
-    threshold: f32,
-) -> Option<PinHit> {
-    let center = transform.screen_to_data(cursor)?;
-    let edge = transform.screen_to_data(ScreenPoint::new(cursor.x + threshold, cursor.y))?;
-    let dx = (edge.x - center.x).abs();
-    let search_range = Range::new(center.x - dx, center.x + dx);
-
-    let mut best: Option<PinHit> = None;
-    let threshold_sq = threshold * threshold;
-
-    for series in series {
-        if !series.is_visible() {
-            continue;
-        }
-        let data = series.data().data();
-        let index_range = data.range_by_x(search_range);
-        for index in index_range {
-            let Some(point) = data.point(index) else {
-                continue;
-            };
-            let Some(screen) = transform.data_to_screen(point) else {
-                continue;
-            };
-            let dx = screen.x - cursor.x;
-            let dy = screen.y - cursor.y;
-            let distance_sq = dx * dx + dy * dy;
-            if distance_sq > threshold_sq {
-                continue;
-            }
-            let hit = PinHit {
-                pin: Pin {
-                    series_id: series.id(),
-                    point_index: index,
-                },
-                distance_sq,
-            };
-            if best.is_none_or(|best| hit.distance_sq < best.distance_sq) {
-                best = Some(hit);
-            }
-        }
-    }
-
-    best
 }
 
 fn contains(rect: ScreenRect, point: ScreenPoint) -> bool {
@@ -181,10 +127,6 @@ fn contains(rect: ScreenRect, point: ScreenPoint) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::axis::AxisScale;
-    use crate::geom::Point;
-    use crate::series::SeriesKind;
-    use crate::transform::Transform;
 
     #[test]
     fn hit_test_regions() {
@@ -205,21 +147,5 @@ mod tests {
             regions.hit_test(ScreenPoint::new(-1.0, 5.0)),
             HitRegion::YAxis
         );
-    }
-
-    #[test]
-    fn nearest_point_detects_hit() {
-        let series = Series::from_iter_points(
-            "test",
-            [Point::new(0.0, 0.0), Point::new(1.0, 1.0)],
-            SeriesKind::Line(crate::render::LineStyle::default()),
-        );
-        let viewport = Viewport::new(Range::new(0.0, 1.0), Range::new(0.0, 1.0));
-        let rect = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(100.0, 100.0));
-        let transform =
-            Transform::new(viewport, rect, AxisScale::Linear, AxisScale::Linear).unwrap();
-        let cursor = ScreenPoint::new(0.0, 100.0);
-        let hit = find_nearest_point(&[series], &transform, cursor, 5.0);
-        assert!(hit.is_some());
     }
 }

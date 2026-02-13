@@ -9,7 +9,7 @@ const DEFAULT_BASE_CHUNK: usize = 64;
 
 /// Append-only series storage with summaries and generation tracking.
 #[derive(Debug, Clone)]
-pub struct SeriesStore {
+pub(crate) struct SeriesStore {
     data: AppendOnlyData,
     summary: SummaryLevels,
     generation: u64,
@@ -19,11 +19,6 @@ impl SeriesStore {
     /// Create an indexed series store with default summary settings.
     pub fn indexed() -> Self {
         Self::with_base_chunk(AppendOnlyData::indexed(), DEFAULT_BASE_CHUNK)
-    }
-
-    /// Create an explicit series store with default summary settings.
-    pub fn explicit() -> Self {
-        Self::with_base_chunk(AppendOnlyData::explicit(), DEFAULT_BASE_CHUNK)
     }
 
     /// Create a store from existing data and base chunk size.

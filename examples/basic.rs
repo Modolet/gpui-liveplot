@@ -1,7 +1,4 @@
-use gpui_plot::{
-    AxisConfig, DecimationScratch, LineStyle, MarkerStyle, Plot, Point, ScreenPoint, ScreenRect,
-    Series, SeriesKind, Theme, Transform,
-};
+use gpui_plot::{AxisConfig, LineStyle, MarkerStyle, Plot, Point, Series, SeriesKind, Theme};
 
 fn main() {
     let mut plot = Plot::builder()
@@ -10,14 +7,19 @@ fn main() {
         .y_axis(AxisConfig::linear())
         .build();
 
+    let line_values: Vec<f64> = (0..2000).map(|i| (i as f64 * 0.01).sin()).collect();
+    let scatter_points: Vec<Point> = (0..200)
+        .map(|i| Point::new(i as f64 * 0.1, (i as f64 * 0.1).cos()))
+        .collect();
+
     let line = Series::from_iter_y(
         "line",
-        (0..2000).map(|i| (i as f64 * 0.01).sin()),
+        line_values.iter().copied(),
         SeriesKind::Line(LineStyle::default()),
     );
     let scatter = Series::from_iter_points(
         "scatter",
-        (0..200).map(|i| Point::new(i as f64 * 0.1, (i as f64 * 0.1).cos())),
+        scatter_points.iter().copied(),
         SeriesKind::Scatter(MarkerStyle::default()),
     );
 
@@ -25,22 +27,11 @@ fn main() {
     plot.add_series(scatter);
     plot.refresh_viewport(0.05, 1e-6);
 
-    let viewport = plot.viewport().expect("viewport available");
-    let rect = ScreenRect::new(ScreenPoint::new(0.0, 0.0), ScreenPoint::new(800.0, 600.0));
-    let transform =
-        Transform::new(viewport, rect, plot.x_axis().scale(), plot.y_axis().scale()).unwrap();
-    let mut scratch = DecimationScratch::new();
+    let _ = plot.viewport().expect("viewport available");
 
-    for series in plot.series() {
-        let decimated = series.data().decimate(viewport.x, 800, &mut scratch);
-        println!(
-            "{}: {} points -> {} decimated points",
-            series.name(),
-            series.data().data().len(),
-            decimated.len()
-        );
-        let _ = transform;
-    }
-
-    println!("basic example complete");
+    println!(
+        "basic example ready: line={} scatter={}",
+        line_values.len(),
+        scatter_points.len()
+    );
 }

@@ -16,24 +16,16 @@ pub mod view;
 
 pub mod gpui_backend;
 
-pub use axis::{
-    ApproxTextMeasurer, AxisConfig, AxisFormatter, AxisLayout, AxisLayoutCache, AxisScale,
-    TextMeasurer, Tick, TickConfig, generate_ticks,
-};
-pub use datasource::{AppendError, AppendOnlyData, DecimationScratch, SeriesStore, XMode};
-pub use geom::{Point, ScreenPoint, ScreenRect};
-pub use interaction::{
-    HitRegion, Pin, PinHit, PlotRegions, find_nearest_point, pan_viewport, toggle_pin,
-    zoom_factor_from_drag, zoom_to_rect, zoom_viewport,
-};
+pub use axis::{AxisConfig, AxisFormatter, AxisScale, TickConfig};
+pub use datasource::AppendError;
+pub use geom::Point;
+pub use interaction::Pin;
 pub use plot::{Plot, PlotBuilder};
 pub use render::{
-    Color, LineSegment, LineStyle, MarkerShape, MarkerStyle, RectStyle, RenderCacheKey,
-    RenderCommand, RenderList, TextStyle, build_line_segments, build_scatter_points,
+    Color, LineStyle, MarkerShape, MarkerStyle,
 };
 pub use series::{Series, SeriesId, SeriesKind};
 pub use style::Theme;
-pub use transform::Transform;
 pub use view::{Range, View, Viewport};
 
 pub use gpui_backend::{GpuiPlotView, PlotHandle, PlotViewConfig};
