@@ -1,7 +1,7 @@
 //! Axis configuration, scaling, and formatting.
 //!
 //! Axes are configured at the plot level and shared across all series. This module provides:
-//! - scale types (linear/time),
+//! - scale types (linear),
 //! - formatting and tick generation,
 //! - layout metadata used by render backends.
 
@@ -10,15 +10,10 @@ use std::sync::Arc;
 use crate::view::Range;
 
 /// Axis scale type shared by all series in a plot.
-///
-/// The time scale is represented internally as seconds since Unix epoch (`f64`)
-/// and behaves like a linear scale for transforms and decimation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisScale {
     /// Linear scaling.
     Linear,
-    /// Time axis (mapped as linear seconds since Unix epoch internally).
-    Time,
 }
 
 impl AxisScale {
@@ -29,9 +24,7 @@ impl AxisScale {
         if !value.is_finite() {
             return None;
         }
-        match self {
-            Self::Linear | Self::Time => Some(value),
-        }
+        Some(value)
     }
 
     /// Invert a value from axis space back into data space.
@@ -41,9 +34,7 @@ impl AxisScale {
         if !value.is_finite() {
             return None;
         }
-        match self {
-            Self::Linear | Self::Time => Some(value),
-        }
+        Some(value)
     }
 
     /// Check whether a data range is valid for this scale.
@@ -53,9 +44,7 @@ impl AxisScale {
         if !range.is_finite() {
             return false;
         }
-        match self {
-            Self::Linear | Self::Time => true,
-        }
+        true
     }
 }
 
@@ -78,7 +67,7 @@ pub enum AxisFormatter {
 impl AxisFormatter {
     /// Format a value for display.
     ///
-    /// Time axes can override this via [`AxisConfig::format_value`].
+    /// Time axes can override this via custom formatting.
     pub fn format(&self, value: f64) -> String {
         match self {
             Self::Default => format!("{value:.6}"),
@@ -118,7 +107,7 @@ pub struct AxisConfig {
 impl AxisConfig {
     /// Create a new axis configuration.
     ///
-    /// Most users should prefer [`AxisConfig::linear`] or [`AxisConfig::time`].
+    /// Most users should prefer [`AxisConfig::linear`].
     pub fn new(scale: AxisScale) -> Self {
         Self {
             scale,
@@ -137,13 +126,6 @@ impl AxisConfig {
     /// Create a linear axis configuration.
     pub fn linear() -> Self {
         Self::new(AxisScale::Linear)
-    }
-
-    /// Create a time axis configuration.
-    ///
-    /// Time values are expected to be seconds since Unix epoch (`f64`).
-    pub fn time() -> Self {
-        Self::new(AxisScale::Time)
     }
 
     /// Access the axis scale.
@@ -171,7 +153,7 @@ impl AxisConfig {
 
     /// Set the axis formatter.
     ///
-    /// For time axes, the formatter overrides the built-in time formatting.
+    /// Custom formatters override the default numeric formatting.
     pub fn with_formatter(mut self, formatter: AxisFormatter) -> Self {
         self.formatter = formatter;
         self
@@ -230,19 +212,9 @@ impl AxisConfig {
         &self.formatter
     }
 
-    /// Format a value for display, using time formatting when appropriate.
-    ///
-    /// For `AxisScale::Time`, this uses the built-in formatter unless a
-    /// custom formatter is supplied.
+    /// Format a value for display using the configured formatter.
     pub fn format_value(&self, value: f64) -> String {
-        if self.scale == AxisScale::Time {
-            match &self.formatter {
-                AxisFormatter::Custom(formatter) => formatter(value),
-                AxisFormatter::Default => format_time_value(value),
-            }
-        } else {
-            self.formatter.format(value)
-        }
+        self.formatter.format(value)
     }
 
     /// Access the tick configuration.
@@ -399,7 +371,6 @@ fn generate_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tic
     }
     match axis.scale() {
         AxisScale::Linear => generate_linear_ticks(axis, range, pixel_length),
-        AxisScale::Time => generate_time_ticks(axis, range, pixel_length),
     }
 }
 
@@ -445,32 +416,6 @@ fn generate_linear_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> 
     ticks
 }
 
-fn generate_time_ticks(axis: &AxisConfig, range: Range, pixel_length: f32) -> Vec<Tick> {
-    let target = (pixel_length / axis.tick_config().pixel_spacing).max(2.0);
-    let raw_step = range.span() / target as f64;
-    let step = choose_time_step(raw_step);
-    if step <= 0.0 {
-        return Vec::new();
-    }
-
-    let mut ticks = Vec::new();
-    let mut value = (range.min / step).floor() * step;
-    let max_value = range.max + step * 0.5;
-
-    while value <= max_value {
-        if value >= range.min - step * 0.5 {
-            ticks.push(Tick {
-                value,
-                label: axis.format_value(value),
-                is_major: true,
-            });
-        }
-        value += step;
-    }
-
-    ticks
-}
-
 fn nice_step(step: f64) -> f64 {
     if step <= 0.0 {
         return 0.0;
@@ -488,42 +433,6 @@ fn nice_step(step: f64) -> f64 {
         10.0
     };
     nice * base
-}
-
-fn choose_time_step(step: f64) -> f64 {
-    const STEPS: &[f64] = &[
-        1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0, 900.0, 1800.0, 3600.0, 7200.0,
-        21600.0, 43200.0, 86400.0, 172800.0, 604800.0,
-    ];
-    for candidate in STEPS {
-        if *candidate >= step {
-            return *candidate;
-        }
-    }
-    STEPS.last().copied().unwrap_or(step)
-}
-
-#[cfg(feature = "time")]
-fn format_time_value(value: f64) -> String {
-    use time::OffsetDateTime;
-    use time::UtcOffset;
-    use time::format_description::well_known::Rfc3339;
-
-    let secs = value.floor() as i64;
-    let nanos = ((value.fract()) * 1_000_000_000.0) as i64;
-    let dt = OffsetDateTime::from_unix_timestamp(secs)
-        .unwrap_or(OffsetDateTime::UNIX_EPOCH)
-        .replace_nanosecond(nanos as u32)
-        .unwrap_or(OffsetDateTime::UNIX_EPOCH);
-    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    dt.to_offset(offset)
-        .format(&Rfc3339)
-        .unwrap_or_else(|_| value.to_string())
-}
-
-#[cfg(not(feature = "time"))]
-fn format_time_value(value: f64) -> String {
-    format!("{value:.3}")
 }
 
 #[cfg(test)]

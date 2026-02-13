@@ -14,8 +14,7 @@ for rendering and interaction.
 
 ## Feature flags
 
-- `time`: Enable time-axis formatting via `time::OffsetDateTime` and local
-  offsets.
+- None at the moment.
 
 ## Installation
 
@@ -24,13 +23,6 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 gpui_plot = "0.1"
-```
-
-Enable time axis formatting (optional):
-
-```toml
-[dependencies]
-gpui_plot = { version = "0.1", features = ["time"] }
 ```
 
 ## Quick start (plot only)
@@ -91,14 +83,7 @@ Each example focuses on a single feature:
 
 - Basic usage: `cargo run --example basic`
 - Append-only streaming + FollowLastN: `cargo run --example append_only`
-- Time axis: `cargo run --example time_axis`
 - Pin annotations: `cargo run --example pins`
-
-Time formatting requires `time`:
-
-```
-cargo run --example time_axis --features time
-```
 
 ## Data model
 
@@ -143,7 +128,7 @@ needed. Themes apply to the whole plot.
 
 - Append-only data model is the primary target; random inserts/deletes are not
   optimized.
-- Only linear and time axes are supported in v0.1.
+- Only linear axes are supported in v0.1.
 
 ## Development checks
 
@@ -154,5 +139,4 @@ needed. Themes apply to the whole plot.
 
 1. Run `cargo run --example basic` and verify the plot renders.
 2. Run `cargo run --example append_only` and observe streaming updates.
-3. Run `cargo run --example time_axis --features time` and verify time labels.
-4. Run `cargo run --example pins` and click on points to pin/unpin.
+3. Run `cargo run --example pins` and click on points to pin/unpin.

@@ -7,7 +7,7 @@
 //! - Interactive pan, zoom, box zoom, hover readout, and pin annotations via GPUI.
 //!
 //! # Feature flags
-//! - `time`: Enable time-axis formatting using `time::OffsetDateTime` and local offsets.
+//! - None at the moment.
 //!
 //! # Quick start
 //! ```rust
