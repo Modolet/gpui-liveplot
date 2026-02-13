@@ -16,7 +16,7 @@ use crate::view::{Range, Viewport};
 
 use super::config::PlotViewConfig;
 use super::constants::*;
-use super::geometry::{clamp_point, distance_sq, normalized_rect, rect_intersects_any};
+use super::geometry::{clamp_point, distance_sq, normalized_rect, rect_intersects, rect_intersects_any};
 use super::hover::update_hover_target;
 use super::state::{LegendEntry, LegendLayout, PlotUiState};
 use super::text::GpuiTextMeasurer;
@@ -591,6 +591,30 @@ fn build_axes(
     let label_gap = 2.0_f32;
     let mut last_x_label_right = f32::NEG_INFINITY;
     let mut last_y_label_top = f32::INFINITY;
+    let x_title_rect = axis_title_text(plot.x_axis()).map(|title| {
+        let size = measurer.measure(&title, plot.x_axis().label_size());
+        let pos = clamp_label_position(
+            ScreenPoint::new(
+                plot_rect.min.x + (plot_rect.width() - size.0) * 0.5,
+                x_axis_rect.max.y - size.1 - AXIS_PADDING,
+            ),
+            size,
+            x_axis_rect,
+        );
+        ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, pos.y + size.1))
+    });
+    let y_title_rect = axis_title_text(plot.y_axis()).map(|title| {
+        let size = measurer.measure(&title, plot.y_axis().label_size());
+        let pos = clamp_label_position(
+            ScreenPoint::new(
+                y_axis_rect.min.x + AXIS_PADDING,
+                y_axis_rect.min.y + AXIS_PADDING,
+            ),
+            size,
+            y_axis_rect,
+        );
+        ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, pos.y + size.1))
+    });
 
     if plot.x_axis().show_border() {
         render.push(RenderCommand::Rect {
@@ -627,15 +651,22 @@ fn build_axes(
                 let size = measurer.measure(&tick.label, plot.x_axis().label_size());
                 let pos = clamp_label_position(
                     ScreenPoint::new(
-                    x - size.0 * 0.5,
-                    plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
+                        x - size.0 * 0.5,
+                        plot_rect.max.y + TICK_LENGTH_MAJOR + AXIS_PADDING,
                     ),
                     size,
                     x_axis_rect,
                 );
                 let label_left = pos.x;
                 let label_right = pos.x + size.0;
-                if label_left >= last_x_label_right + label_gap {
+                let label_rect = ScreenRect::new(
+                    pos,
+                    ScreenPoint::new(label_right, pos.y + size.1),
+                );
+                let overlaps_title = x_title_rect
+                    .map(|rect| rect_intersects(label_rect, rect))
+                    .unwrap_or(false);
+                if !overlaps_title && label_left >= last_x_label_right + label_gap {
                     render.push(RenderCommand::Text {
                         position: pos,
                         text: tick.label.clone(),
@@ -674,15 +705,22 @@ fn build_axes(
                 let size = measurer.measure(&tick.label, plot.y_axis().label_size());
                 let pos = clamp_label_position(
                     ScreenPoint::new(
-                    plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
-                    y - size.1 * 0.5,
+                        plot_rect.min.x - TICK_LENGTH_MAJOR - AXIS_PADDING - size.0,
+                        y - size.1 * 0.5,
                     ),
                     size,
                     y_axis_rect,
                 );
                 let label_top = pos.y;
                 let label_bottom = pos.y + size.1;
-                if label_bottom <= last_y_label_top - label_gap {
+                let label_rect = ScreenRect::new(
+                    pos,
+                    ScreenPoint::new(pos.x + size.0, label_bottom),
+                );
+                let overlaps_title = y_title_rect
+                    .map(|rect| rect_intersects(label_rect, rect))
+                    .unwrap_or(false);
+                if !overlaps_title && label_bottom <= last_y_label_top - label_gap {
                     render.push(RenderCommand::Text {
                         position: pos,
                         text: tick.label.clone(),
