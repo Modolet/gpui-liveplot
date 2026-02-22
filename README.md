@@ -36,7 +36,7 @@ let series = Series::from_iter_y(
     (0..1000).map(|i| (i as f64 * 0.01).sin()),
     SeriesKind::Line(LineStyle::default()),
 );
-plot.add_series(series);
+plot.add_series(&series);
 plot.refresh_viewport(0.05, 1e-6);
 ```
 
@@ -68,7 +68,7 @@ Application::new().run(|cx| {
             .x_axis(AxisConfig::builder().title("Sample").build())
             .y_axis(AxisConfig::builder().title("Amplitude").build())
             .build();
-        plot.add_series(series);
+        plot.add_series(&series);
 
         let view = GpuiPlotView::new(plot);
         cx.new(|_| view)
@@ -92,8 +92,7 @@ Each example focuses on a single feature:
 - Two X modes:
   - Implicit X (index-based): `Series::line` / `Series::scatter` + `push_y`.
   - Explicit X/Y: `Series::from_iter_points` or `push_point`.
-- Share one live data stream across plots with `Series::share` or
-  `Plot::add_shared_series`.
+- `Plot::add_series` always stores a shared-series handle.
 - Explicit X values are expected to be monotonic for fast range queries; the
   library will still render non-monotonic data but may fall back to full scans.
 

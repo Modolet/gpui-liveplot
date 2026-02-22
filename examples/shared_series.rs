@@ -53,7 +53,7 @@ fn build_views(
         .y_axis(AxisConfig::builder().title("Plot A").build())
         .view(View::FollowLastN { points: 1000 })
         .build();
-    top_plot.add_shared_series(&shared_source);
+    top_plot.add_series(&shared_source);
 
     let mut bottom_plot = Plot::builder()
         .theme(Theme::dark())
@@ -61,7 +61,7 @@ fn build_views(
         .y_axis(AxisConfig::builder().title("Plot B").build())
         .view(View::FollowLastN { points: 1000 })
         .build();
-    bottom_plot.add_shared_series(&shared_source);
+    bottom_plot.add_series(&shared_source);
 
     let config = PlotViewConfig {
         show_legend: true,

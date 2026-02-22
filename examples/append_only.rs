@@ -49,7 +49,7 @@ fn build_view(cx: &mut gpui::Context<LiveDemo>) -> (gpui::Entity<GpuiPlotView>, 
         .y_axis(AxisConfig::builder().title("Value").build())
         .view(View::FollowLastN { points: 800 })
         .build();
-    plot.add_series(series);
+    plot.add_series(&series);
 
     let config = PlotViewConfig {
         show_legend: false,

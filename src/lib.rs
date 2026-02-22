@@ -19,7 +19,7 @@
 //!     (0..1000).map(|i| (i as f64 * 0.01).sin()),
 //!     SeriesKind::Line(LineStyle::default()),
 //! );
-//! plot.add_series(series);
+//! plot.add_series(&series);
 //! plot.refresh_viewport(0.05, 1e-6);
 //! ```
 //!

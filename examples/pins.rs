@@ -33,7 +33,7 @@ fn main() {
                 .x_axis(AxisConfig::builder().title("Sample").build())
                 .y_axis(AxisConfig::builder().title("Amplitude").build())
                 .build();
-            plot.add_series(series);
+            plot.add_series(&series);
 
             let config = PlotViewConfig {
                 show_legend: false,

@@ -89,15 +89,10 @@ impl Plot {
     }
 
     /// Add a series to the plot.
-    pub fn add_series(&mut self, series: Series) {
-        self.series.push(series);
-    }
-
-    /// Add a series that shares data with an existing series.
     ///
-    /// This is a convenience wrapper around [`Series::share`]. The inserted
-    /// series gets a new ID and shares the same append-only data stream.
-    pub fn add_shared_series(&mut self, series: &Series) {
+    /// The plot stores a shared handle instead of taking unique ownership.
+    /// Appends made through other shared handles are visible immediately.
+    pub fn add_series(&mut self, series: &Series) {
         self.series.push(series.share());
     }
 
@@ -289,15 +284,9 @@ impl PlotBuilder {
     }
 
     /// Add a series to the plot.
-    pub fn series(mut self, series: Series) -> Self {
-        self.series.push(series);
-        self
-    }
-
-    /// Add a shared-series handle to the plot.
     ///
-    /// This is equivalent to calling [`Plot::add_shared_series`] after build.
-    pub fn shared_series(mut self, series: &Series) -> Self {
+    /// The builder stores a shared handle to the given series.
+    pub fn series(mut self, series: &Series) -> Self {
         self.series.push(series.share());
         self
     }
@@ -313,5 +302,28 @@ impl PlotBuilder {
             series: self.series,
             pins: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::series::Series;
+
+    #[test]
+    fn add_series_uses_shared_data_stream() {
+        let mut source = Series::line("shared");
+        let _ = source.extend_y([1.0, 2.0]);
+
+        let mut plot = Plot::new();
+        plot.add_series(&source);
+
+        let initial_bounds = plot.data_bounds().expect("plot bounds");
+        assert_eq!(initial_bounds.y.min, 1.0);
+        assert_eq!(initial_bounds.y.max, 2.0);
+
+        let _ = source.push_y(3.0);
+        let next_bounds = plot.data_bounds().expect("plot bounds");
+        assert_eq!(next_bounds.y.max, 3.0);
     }
 }
