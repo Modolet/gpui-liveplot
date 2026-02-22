@@ -255,9 +255,9 @@ fn index_range(range: Range, len: usize) -> std::ops::Range<usize> {
     if len == 0 {
         return 0..0;
     }
-    let min = range.min.floor().max(0.0) as isize;
-    let max = range.max.ceil().max(0.0) as isize;
-    if max < 0 {
+    let min = range.min.ceil() as isize;
+    let max = range.max.floor() as isize;
+    if max < 0 || min > max {
         return 0..0;
     }
     let start = min.max(0) as usize;
@@ -305,6 +305,16 @@ mod tests {
         assert_eq!(slice.len(), 2);
         assert_eq!(slice[0].x, 1.0);
         assert_eq!(slice[1].x, 2.0);
+    }
+
+    #[test]
+    fn indexed_range_respects_fractional_bounds() {
+        let data = AppendOnlyData::from_iter_y([1.0, 2.0, 3.0, 4.0, 5.0]);
+        let range = data.range_by_x(Range::new(1.2, 3.8));
+        let slice = &data.points()[range];
+        assert_eq!(slice.len(), 2);
+        assert_eq!(slice[0].x, 2.0);
+        assert_eq!(slice[1].x, 3.0);
     }
 
     #[test]
