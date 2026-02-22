@@ -84,7 +84,10 @@ impl Plot {
     }
 
     /// Access all series mutably.
-    pub fn series_mut(&mut self) -> &mut [Series] {
+    ///
+    /// Returning the backing vector allows callers to add, remove, and reorder
+    /// series at runtime.
+    pub fn series_mut(&mut self) -> &mut Vec<Series> {
         &mut self.series
     }
 
@@ -325,5 +328,22 @@ mod tests {
         let _ = source.push_y(3.0);
         let next_bounds = plot.data_bounds().expect("plot bounds");
         assert_eq!(next_bounds.y.max, 3.0);
+    }
+
+    #[test]
+    fn series_mut_can_remove_series() {
+        let mut first = Series::line("first");
+        let mut second = Series::line("second");
+        let _ = first.push_y(1.0);
+        let _ = second.push_y(9.0);
+
+        let mut plot = Plot::new();
+        plot.add_series(&first);
+        plot.add_series(&second);
+
+        let removed = plot.series_mut().remove(1);
+        assert_eq!(removed.name(), "second");
+        assert_eq!(plot.series().len(), 1);
+        assert_eq!(plot.series()[0].name(), "first");
     }
 }
