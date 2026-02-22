@@ -93,6 +93,14 @@ impl Plot {
         self.series.push(series);
     }
 
+    /// Add a series that shares data with an existing series.
+    ///
+    /// This is a convenience wrapper around [`Series::share`]. The inserted
+    /// series gets a new ID and shares the same append-only data stream.
+    pub fn add_shared_series(&mut self, series: &Series) {
+        self.series.push(series.share());
+    }
+
     /// Access the pinned points.
     pub fn pins(&self) -> &[Pin] {
         &self.pins
@@ -181,8 +189,8 @@ impl Plot {
             if !series.is_visible() {
                 continue;
             }
-            let data = series.data().data();
-            if let Some(point) = data.points().last().copied()
+            let last_point = series.with_store(|store| store.data().points().last().copied());
+            if let Some(point) = last_point
                 && max_point.is_none_or(|max| point.x > max.x)
             {
                 max_point = Some(point);
@@ -192,13 +200,16 @@ impl Plot {
 
         let max_series = max_series?;
         let max_point = max_point?;
-        let data = max_series.data().data();
-        let len = data.len();
+        let (len, start_point) = max_series.with_store(|store| {
+            let data = store.data();
+            let len = data.len();
+            let start_index = len.saturating_sub(points);
+            (len, data.point(start_index))
+        });
         if len == 0 {
             return None;
         }
-        let start_index = len.saturating_sub(points);
-        let start_point = data.point(start_index)?;
+        let start_point = start_point?;
         let x_range = Range::new(start_point.x, max_point.x);
 
         let y_range = if follow_y {
@@ -207,19 +218,21 @@ impl Plot {
                 if !series.is_visible() {
                     continue;
                 }
-                let series_data = series.data().data();
-                let index_range = series_data.range_by_x(x_range);
-                for index in index_range {
-                    if let Some(point) = series_data.point(index) {
-                        y_range = Some(match y_range {
-                            None => Range::new(point.y, point.y),
-                            Some(mut existing) => {
-                                existing.expand_to_include(point.y);
-                                existing
-                            }
-                        });
+                series.with_store(|store| {
+                    let series_data = store.data();
+                    let index_range = series_data.range_by_x(x_range);
+                    for index in index_range {
+                        if let Some(point) = series_data.point(index) {
+                            y_range = Some(match y_range {
+                                None => Range::new(point.y, point.y),
+                                Some(mut existing) => {
+                                    existing.expand_to_include(point.y);
+                                    existing
+                                }
+                            });
+                        }
                     }
-                }
+                });
             }
             y_range?
         } else if let Some(current) = self.viewport {
@@ -278,6 +291,14 @@ impl PlotBuilder {
     /// Add a series to the plot.
     pub fn series(mut self, series: Series) -> Self {
         self.series.push(series);
+        self
+    }
+
+    /// Add a shared-series handle to the plot.
+    ///
+    /// This is equivalent to calling [`Plot::add_shared_series`] after build.
+    pub fn shared_series(mut self, series: &Series) -> Self {
+        self.series.push(series.share());
         self
     }
 

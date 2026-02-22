@@ -84,6 +84,7 @@ Each example focuses on a single feature:
 - Basic usage: `cargo run --example basic`
 - Append-only streaming + FollowLastN: `cargo run --example append_only`
 - Pin annotations: `cargo run --example pins`
+- Shared series across multiple plots: `cargo run --example shared_series`
 
 ## Data model
 
@@ -91,6 +92,8 @@ Each example focuses on a single feature:
 - Two X modes:
   - Implicit X (index-based): `Series::line` / `Series::scatter` + `push_y`.
   - Explicit X/Y: `Series::from_iter_points` or `push_point`.
+- Share one live data stream across plots with `Series::share` or
+  `Plot::add_shared_series`.
 - Explicit X values are expected to be monotonic for fast range queries; the
   library will still render non-monotonic data but may fall back to full scans.
 

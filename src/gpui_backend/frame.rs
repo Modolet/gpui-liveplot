@@ -321,13 +321,15 @@ fn build_series(
             generation: series.generation(),
         };
         if cache.key.as_ref() != Some(&key) {
-            let decimated = series.data().decimate(
-                transform.viewport().x,
-                plot_width,
-                &mut state.decimation_scratch,
-            );
-            cache.points.clear();
-            cache.points.extend_from_slice(decimated);
+            series.with_store(|store| {
+                let decimated = store.decimate(
+                    transform.viewport().x,
+                    plot_width,
+                    &mut state.decimation_scratch,
+                );
+                cache.points.clear();
+                cache.points.extend_from_slice(decimated);
+            });
             cache.key = Some(key.clone());
         }
 
@@ -400,7 +402,7 @@ fn build_pins(
         if !series.is_visible() {
             continue;
         }
-        let Some(point) = series.data().data().point(pin.point_index) else {
+        let Some(point) = series.with_store(|store| store.data().point(pin.point_index)) else {
             continue;
         };
         let Some(screen) = transform.data_to_screen(point) else {
@@ -830,7 +832,8 @@ fn build_hover(
         else {
             return;
         };
-        let Some(point) = series.data().data().point(target.pin.point_index) else {
+        let Some(point) = series.with_store(|store| store.data().point(target.pin.point_index))
+        else {
             return;
         };
         let screen = target.screen;

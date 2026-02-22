@@ -59,7 +59,8 @@ pub(crate) fn compute_hover_target(
         return None;
     }
 
-    if let Some(target) = nearest_pinned_within(plot, transform, cursor, plot_rect, unpin_threshold) {
+    if let Some(target) = nearest_pinned_within(plot, transform, cursor, plot_rect, unpin_threshold)
+    {
         return Some(target);
     }
 
@@ -120,37 +121,39 @@ fn find_nearest_unpinned_point(
         if !series.is_visible() {
             continue;
         }
-        let data = series.data().data();
-        let index_range = data.range_by_x(search_range);
-        for index in index_range {
-            let Some(point) = data.point(index) else {
-                continue;
-            };
-            let pin = crate::interaction::Pin {
-                series_id: series.id(),
-                point_index: index,
-            };
-            if pins.contains(&pin) {
-                continue;
+        series.with_store(|store| {
+            let data = store.data();
+            let index_range = data.range_by_x(search_range);
+            for index in index_range {
+                let Some(point) = data.point(index) else {
+                    continue;
+                };
+                let pin = crate::interaction::Pin {
+                    series_id: series.id(),
+                    point_index: index,
+                };
+                if pins.contains(&pin) {
+                    continue;
+                }
+                let Some(screen) = transform.data_to_screen(point) else {
+                    continue;
+                };
+                if screen.x < plot_rect.min.x
+                    || screen.x > plot_rect.max.x
+                    || screen.y < plot_rect.min.y
+                    || screen.y > plot_rect.max.y
+                {
+                    continue;
+                }
+                let dist = distance_sq(screen, cursor);
+                if dist > threshold_sq {
+                    continue;
+                }
+                if best.is_none_or(|best| dist < best.2) {
+                    best = Some((pin, screen, dist));
+                }
             }
-            let Some(screen) = transform.data_to_screen(point) else {
-                continue;
-            };
-            if screen.x < plot_rect.min.x
-                || screen.x > plot_rect.max.x
-                || screen.y < plot_rect.min.y
-                || screen.y > plot_rect.max.y
-            {
-                continue;
-            }
-            let dist = distance_sq(screen, cursor);
-            if dist > threshold_sq {
-                continue;
-            }
-            if best.is_none_or(|best| dist < best.2) {
-                best = Some((pin, screen, dist));
-            }
-        }
+        });
     }
 
     best.map(|(pin, screen, _)| HoverTarget {
@@ -172,6 +175,6 @@ fn pin_screen_point(
     if !series.is_visible() {
         return None;
     }
-    let point = series.data().data().point(pin.point_index)?;
+    let point = series.with_store(|store| store.data().point(pin.point_index))?;
     transform.data_to_screen(point)
 }

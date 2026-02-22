@@ -1,6 +1,7 @@
 //! Data series configuration and storage.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use crate::datasource::{AppendError, AppendOnlyData, SeriesStore};
 use crate::geom::Point;
@@ -37,12 +38,15 @@ pub enum SeriesKind {
 ///
 /// Series own their data and provide append-only methods for streaming
 /// workloads. All axes and transforms are handled at the plot level.
-#[derive(Debug, Clone)]
+///
+/// Use [`Series::share`] when multiple plots should observe the same live
+/// append-only stream. By contrast, [`Clone`] creates an independent copy.
+#[derive(Debug)]
 pub struct Series {
     id: SeriesId,
     name: String,
     kind: SeriesKind,
-    data: SeriesStore,
+    data: Arc<RwLock<SeriesStore>>,
     visible: bool,
 }
 
@@ -55,7 +59,7 @@ impl Series {
             id: SeriesId::next(),
             name: name.into(),
             kind: SeriesKind::Line(LineStyle::default()),
-            data: SeriesStore::indexed(),
+            data: Arc::new(RwLock::new(SeriesStore::indexed())),
             visible: true,
         }
     }
@@ -68,7 +72,7 @@ impl Series {
             id: SeriesId::next(),
             name: name.into(),
             kind: SeriesKind::Scatter(MarkerStyle::default()),
-            data: SeriesStore::indexed(),
+            data: Arc::new(RwLock::new(SeriesStore::indexed())),
             visible: true,
         }
     }
@@ -83,7 +87,7 @@ impl Series {
             id: SeriesId::next(),
             name: name.into(),
             kind,
-            data: SeriesStore::with_base_chunk(data, 64),
+            data: Arc::new(RwLock::new(SeriesStore::with_base_chunk(data, 64))),
             visible: true,
         }
     }
@@ -146,14 +150,30 @@ impl Series {
         self
     }
 
-    /// Access the series data.
-    pub(crate) fn data(&self) -> &SeriesStore {
-        &self.data
+    /// Create another series handle that shares the same append-only data.
+    ///
+    /// The returned series receives a new [`SeriesId`], so it can coexist with
+    /// the source series in the same plot. Data appends through either series
+    /// are immediately visible to all shared handles.
+    pub fn share(&self) -> Self {
+        Self {
+            id: SeriesId::next(),
+            name: self.name.clone(),
+            kind: self.kind.clone(),
+            data: Arc::clone(&self.data),
+            visible: self.visible,
+        }
+    }
+
+    /// Access the underlying series store.
+    pub(crate) fn with_store<R>(&self, f: impl FnOnce(&SeriesStore) -> R) -> R {
+        let data = self.data.read().expect("series data lock");
+        f(&data)
     }
 
     /// Append a Y value to an indexed series.
     pub fn push_y(&mut self, y: f64) -> Result<usize, AppendError> {
-        self.data.push_y(y)
+        self.with_store_mut(|data| data.push_y(y))
     }
 
     /// Append multiple Y values to an indexed series.
@@ -164,12 +184,12 @@ impl Series {
         I: IntoIterator<Item = T>,
         T: Into<f64>,
     {
-        self.data.extend_y(values)
+        self.with_store_mut(|data| data.extend_y(values))
     }
 
     /// Append a point to an explicit series.
     pub fn push_point(&mut self, point: Point) -> Result<usize, AppendError> {
-        self.data.push_point(point)
+        self.with_store_mut(|data| data.push_point(point))
     }
 
     /// Append multiple explicit points to a series.
@@ -181,19 +201,19 @@ impl Series {
     where
         I: IntoIterator<Item = Point>,
     {
-        self.data.extend_points(points)
+        self.with_store_mut(|data| data.extend_points(points))
     }
 
     /// Access the series bounds.
     pub fn bounds(&self) -> Option<Viewport> {
-        self.data.bounds()
+        self.with_store(SeriesStore::bounds)
     }
 
     /// Access the series generation.
     ///
     /// This monotonically increasing value is used for render cache invalidation.
     pub fn generation(&self) -> u64 {
-        self.data.generation()
+        self.with_store(SeriesStore::generation)
     }
 
     /// Check if the series is visible.
@@ -204,5 +224,55 @@ impl Series {
     /// Toggle series visibility.
     pub fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
+    }
+
+    fn with_store_mut<R>(&self, f: impl FnOnce(&mut SeriesStore) -> R) -> R {
+        let mut data = self.data.write().expect("series data lock");
+        f(&mut data)
+    }
+}
+
+impl Clone for Series {
+    fn clone(&self) -> Self {
+        let data = self.data.read().expect("series data lock").clone();
+        Self {
+            id: self.id,
+            name: self.name.clone(),
+            kind: self.kind.clone(),
+            data: Arc::new(RwLock::new(data)),
+            visible: self.visible,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn share_observes_appends_from_source() {
+        let mut source = Series::line("shared");
+        let mut shared = source.share();
+
+        let _ = source.extend_y([1.0, 2.0, 3.0]);
+        assert_eq!(shared.generation(), 3);
+
+        let _ = shared.push_y(4.0);
+        assert_eq!(source.generation(), 4);
+        assert_eq!(source.bounds(), shared.bounds());
+    }
+
+    #[test]
+    fn clone_is_independent_copy() {
+        let mut source = Series::line("sensor");
+        let mut cloned = source.clone();
+
+        let _ = source.push_y(1.0);
+        assert_eq!(source.generation(), 1);
+        assert_eq!(cloned.generation(), 0);
+
+        let _ = cloned.push_y(2.0);
+        assert_eq!(source.generation(), 1);
+        assert_eq!(cloned.generation(), 1);
     }
 }

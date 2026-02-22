@@ -96,7 +96,7 @@ impl SeriesStore {
 
     /// Decimate data for rendering within an X range and pixel width.
     pub fn decimate<'a>(
-        &'a self,
+        &self,
         x_range: Range,
         pixel_width: usize,
         scratch: &'a mut DecimationScratch,
