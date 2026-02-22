@@ -72,9 +72,7 @@ impl AppendOnlyData {
         T: Into<f64>,
     {
         let mut data = Self::indexed();
-        for value in iter {
-            data.push_y(value.into()).ok();
-        }
+        let _ = data.extend_y(iter);
         data
     }
 
@@ -84,9 +82,7 @@ impl AppendOnlyData {
         I: IntoIterator<Item = Point>,
     {
         let mut data = Self::explicit();
-        for point in iter {
-            let _ = data.push_point(point);
-        }
+        let _ = data.extend_points(iter);
         data
     }
 
@@ -116,33 +112,73 @@ impl AppendOnlyData {
 
     /// Append a Y value for indexed data.
     pub fn push_y(&mut self, y: f64) -> Result<usize, AppendError> {
+        let index = self.points.len();
+        self.extend_y([y]).map(|_| index)
+    }
+
+    /// Append multiple Y values for indexed data.
+    pub fn extend_y<I, T>(&mut self, values: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
         if self.x_mode != XMode::Index {
             return Err(AppendError::WrongMode);
         }
-        let index = self.points.len();
-        let point = Point::new(index as f64, y);
-        self.points.push(point);
-        self.update_bounds(point);
-        Ok(index)
+
+        let values = values.into_iter();
+        let (reserve, _) = values.size_hint();
+        self.points.reserve(reserve);
+
+        let start_len = self.points.len();
+        for value in values {
+            let index = self.points.len();
+            let point = Point::new(index as f64, value.into());
+            self.points.push(point);
+            self.update_bounds(point);
+        }
+        Ok(self.points.len() - start_len)
     }
 
     /// Append a point with explicit X value.
     pub fn push_point(&mut self, point: Point) -> Result<usize, AppendError> {
+        let index = self.points.len();
+        self.extend_points([point]).map(|_| index)
+    }
+
+    /// Append multiple points with explicit X values.
+    pub fn extend_points<I>(&mut self, points: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = Point>,
+    {
         if self.x_mode != XMode::Explicit {
             return Err(AppendError::WrongMode);
         }
-        let index = self.points.len();
-        if let Some(last) = self.points.last()
-            && point.x < last.x
-        {
-            self.monotonic = false;
+
+        let points = points.into_iter();
+        let (reserve, _) = points.size_hint();
+        self.points.reserve(reserve);
+
+        let start_len = self.points.len();
+        let mut last_x = self.points.last().map(|point| point.x);
+        let mut non_monotonic = false;
+        for point in points {
+            if let Some(last_x) = last_x
+                && point.x < last_x
+            {
+                self.monotonic = false;
+                non_monotonic = true;
+            }
             self.points.push(point);
             self.update_bounds(point);
-            return Err(AppendError::NonMonotonicX);
+            last_x = Some(point.x);
         }
-        self.points.push(point);
-        self.update_bounds(point);
-        Ok(index)
+
+        if non_monotonic {
+            Err(AppendError::NonMonotonicX)
+        } else {
+            Ok(self.points.len() - start_len)
+        }
     }
 
     /// Access all points as a slice.
@@ -294,5 +330,35 @@ mod tests {
         let result = data.push_point(Point::new(0.5, 2.0));
         assert_eq!(result, Err(AppendError::NonMonotonicX));
         assert!(!data.is_monotonic());
+    }
+
+    #[test]
+    fn extend_y_appends_multiple_values() {
+        let mut data = AppendOnlyData::indexed();
+        let added = data.extend_y([1.0, 2.0, 3.0]).unwrap();
+        assert_eq!(added, 3);
+        assert_eq!(data.point(0), Some(Point::new(0.0, 1.0)));
+        assert_eq!(data.point(2), Some(Point::new(2.0, 3.0)));
+    }
+
+    #[test]
+    fn extend_points_non_monotonic_still_appends_batch() {
+        let mut data = AppendOnlyData::explicit();
+        let _ = data.extend_points([Point::new(1.0, 1.0), Point::new(2.0, 2.0)]);
+        let result = data.extend_points([Point::new(1.5, 3.0), Point::new(4.0, 4.0)]);
+
+        assert_eq!(result, Err(AppendError::NonMonotonicX));
+        assert_eq!(data.len(), 4);
+        assert_eq!(data.point(2), Some(Point::new(1.5, 3.0)));
+        assert_eq!(data.point(3), Some(Point::new(4.0, 4.0)));
+        assert!(!data.is_monotonic());
+    }
+
+    #[test]
+    fn extend_points_wrong_mode_does_not_append() {
+        let mut data = AppendOnlyData::indexed();
+        let result = data.extend_points([Point::new(0.0, 1.0)]);
+        assert_eq!(result, Err(AppendError::WrongMode));
+        assert!(data.is_empty());
     }
 }

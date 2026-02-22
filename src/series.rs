@@ -156,9 +156,32 @@ impl Series {
         self.data.push_y(y)
     }
 
+    /// Append multiple Y values to an indexed series.
+    ///
+    /// Returns the number of appended points.
+    pub fn extend_y<I, T>(&mut self, values: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        self.data.extend_y(values)
+    }
+
     /// Append a point to an explicit series.
     pub fn push_point(&mut self, point: Point) -> Result<usize, AppendError> {
         self.data.push_point(point)
+    }
+
+    /// Append multiple explicit points to a series.
+    ///
+    /// Returns the number of appended points when X values stay monotonic.
+    /// If any new point has a smaller X than the previous point, all points are
+    /// still appended and [`AppendError::NonMonotonicX`] is returned.
+    pub fn extend_points<I>(&mut self, points: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = Point>,
+    {
+        self.data.extend_points(points)
     }
 
     /// Access the series bounds.

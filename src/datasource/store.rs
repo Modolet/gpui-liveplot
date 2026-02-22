@@ -46,23 +46,35 @@ impl SeriesStore {
         result
     }
 
+    /// Append multiple Y values for indexed data.
+    pub fn extend_y<I, T>(&mut self, values: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = T>,
+        T: Into<f64>,
+    {
+        let start_len = self.data.len();
+        let result = self.data.extend_y(values);
+        if result.is_ok() {
+            self.update_summary_from(start_len);
+        }
+        result
+    }
+
     /// Append an explicit point.
     pub fn push_point(&mut self, point: Point) -> Result<usize, AppendError> {
-        let result = self.data.push_point(point);
-        match result {
-            Ok(index) => {
-                if let Some(point) = self.data.point(index) {
-                    self.summary.push(point);
-                    self.generation = self.generation.wrapping_add(1);
-                }
-            }
-            Err(AppendError::NonMonotonicX) => {
-                if let Some(point) = self.data.points().last().copied() {
-                    self.summary.push(point);
-                    self.generation = self.generation.wrapping_add(1);
-                }
-            }
-            Err(AppendError::WrongMode) => {}
+        let index = self.data.len();
+        self.extend_points([point]).map(|_| index)
+    }
+
+    /// Append multiple explicit points.
+    pub fn extend_points<I>(&mut self, points: I) -> Result<usize, AppendError>
+    where
+        I: IntoIterator<Item = Point>,
+    {
+        let start_len = self.data.len();
+        let result = self.data.extend_points(points);
+        if matches!(result, Ok(_) | Err(AppendError::NonMonotonicX)) {
+            self.update_summary_from(start_len);
         }
         result
     }
@@ -127,5 +139,44 @@ impl SeriesStore {
         }
 
         decimate_minmax(points, x_range, pixel_width, scratch)
+    }
+
+    fn update_summary_from(&mut self, start_len: usize) {
+        let new_len = self.data.len();
+        if new_len <= start_len {
+            return;
+        }
+        for point in &self.data.points()[start_len..new_len] {
+            self.summary.push(*point);
+        }
+        self.generation = self
+            .generation
+            .wrapping_add((new_len.saturating_sub(start_len)) as u64);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extend_y_updates_generation_for_each_new_point() {
+        let mut store = SeriesStore::indexed();
+        let added = store.extend_y([1.0, 2.0, 3.0]).unwrap();
+        assert_eq!(added, 3);
+        assert_eq!(store.generation(), 3);
+    }
+
+    #[test]
+    fn extend_points_non_monotonic_still_updates_generation() {
+        let mut store = SeriesStore::with_base_chunk(AppendOnlyData::explicit(), 4);
+        let result = store.extend_points([
+            Point::new(1.0, 1.0),
+            Point::new(2.0, 2.0),
+            Point::new(1.5, 3.0),
+        ]);
+        assert_eq!(result, Err(AppendError::NonMonotonicX));
+        assert_eq!(store.data().len(), 3);
+        assert_eq!(store.generation(), 3);
     }
 }
