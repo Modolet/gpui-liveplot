@@ -7,16 +7,16 @@ use gpui::{
 };
 
 use gpui_plot::{
-    AxisConfig, Color, GpuiPlotView, LineStyle, Plot, PlotLinkGroup, PlotLinkOptions,
-    PlotViewConfig, Series, SeriesKind, Theme, View,
+    AxisConfig, Color, GpuiPlotView, LineStyle, MarkerShape, MarkerStyle, Plot, PlotLinkGroup,
+    PlotLinkOptions, PlotViewConfig, Range, Series, SeriesKind, Theme, View,
 };
 
-struct LinkedP0Demo {
+struct AdvancedDemo {
     top: gpui::Entity<GpuiPlotView>,
     bottom: gpui::Entity<GpuiPlotView>,
 }
 
-impl gpui::Render for LinkedP0Demo {
+impl gpui::Render for AdvancedDemo {
     fn render(
         &mut self,
         _window: &mut gpui::Window,
@@ -39,36 +39,63 @@ fn build_views(
     Series,
     Series,
 ) {
-    let mut top_source = Series::line("sensor-A").with_kind(SeriesKind::Line(LineStyle {
-        color: Color::new(0.2, 0.8, 0.95, 1.0),
+    let mut stream_a = Series::line("stream-A").with_kind(SeriesKind::Line(LineStyle {
+        color: Color::new(0.2, 0.82, 0.95, 1.0),
         width: 2.0,
     }));
-    let mut bottom_source = Series::line("sensor-B").with_kind(SeriesKind::Line(LineStyle {
-        color: Color::new(0.95, 0.65, 0.25, 1.0),
+    let mut stream_b = Series::line("stream-B").with_kind(SeriesKind::Line(LineStyle {
+        color: Color::new(0.95, 0.64, 0.28, 1.0),
         width: 2.0,
     }));
 
-    for i in 0..600 {
+    for i in 0..1_000 {
         let phase = i as f64 * 0.02;
-        let _ = top_source.push_y((phase * 0.8).sin() + 0.15 * (phase * 0.12).cos());
-        let _ = bottom_source.push_y((phase * 0.45).cos() * 1.2);
+        let _ = stream_a.push_y((phase * 0.9).sin() + 0.2 * (phase * 0.13).cos());
+        let _ = stream_b.push_y((phase * 0.45).cos() * 1.15 + 0.15 * (phase * 0.09).sin());
     }
+
+    let events = Series::from_iter_points(
+        "events(scatter)",
+        (0..200).map(|i| {
+            let x = i as f64 * 80.0 + 40.0;
+            let y = (x * 0.02).sin() * 0.9;
+            gpui_plot::Point::new(x, y)
+        }),
+        SeriesKind::Scatter(MarkerStyle {
+            color: Color::new(0.95, 0.25, 0.55, 1.0),
+            size: 5.0,
+            shape: MarkerShape::Circle,
+        }),
+    );
+
+    let baseline = Series::from_explicit_callback(
+        "baseline(callback)",
+        |x| (x * 0.015).sin() * 0.4,
+        Range::new(0.0, 25_000.0),
+        5_000,
+        SeriesKind::Line(LineStyle {
+            color: Color::new(0.45, 0.45, 0.5, 0.8),
+            width: 1.0,
+        }),
+    );
 
     let mut top_plot = Plot::builder()
         .theme(Theme::dark())
         .x_axis(AxisConfig::builder().title("Sample").build())
-        .y_axis(AxisConfig::builder().title("Channel A").build())
-        .view(View::FollowLastN { points: 1_200 })
+        .y_axis(AxisConfig::builder().title("Top: stream + events").build())
+        .view(View::FollowLastN { points: 2_000 })
         .build();
-    top_plot.add_series(&top_source);
+    top_plot.add_series(&stream_a);
+    top_plot.add_series(&events);
 
     let mut bottom_plot = Plot::builder()
         .theme(Theme::dark())
         .x_axis(AxisConfig::builder().title("Sample").build())
-        .y_axis(AxisConfig::builder().title("Channel B").build())
-        .view(View::FollowLastN { points: 1_200 })
+        .y_axis(AxisConfig::builder().title("Bottom: stream + baseline").build())
+        .view(View::FollowLastNXY { points: 2_000 })
         .build();
-    bottom_plot.add_series(&bottom_source);
+    bottom_plot.add_series(&stream_b);
+    bottom_plot.add_series(&baseline);
 
     let config = PlotViewConfig {
         show_legend: true,
@@ -77,24 +104,23 @@ fn build_views(
     };
 
     let link_group = PlotLinkGroup::new();
-    let link_options = PlotLinkOptions {
+    let options = PlotLinkOptions {
         link_x: true,
         link_y: false,
-        link_cursor: false,
-        link_brush: false,
+        link_cursor: true,
+        link_brush: true,
         link_reset: true,
     };
 
     let top = cx.new(|_| {
         GpuiPlotView::with_config(top_plot, config.clone())
-            .with_link_group(link_group.clone(), link_options)
+            .with_link_group(link_group.clone(), options)
     });
     let bottom = cx.new(|_| {
-        GpuiPlotView::with_config(bottom_plot, config)
-            .with_link_group(link_group, link_options)
+        GpuiPlotView::with_config(bottom_plot, config).with_link_group(link_group, options)
     });
 
-    (top, bottom, top_source, bottom_source)
+    (top, bottom, stream_a, stream_b)
 }
 
 fn spawn_updates(
@@ -102,8 +128,8 @@ fn spawn_updates(
     cx: &mut gpui::App,
     top: gpui::Entity<GpuiPlotView>,
     bottom: gpui::Entity<GpuiPlotView>,
-    mut top_source: Series,
-    mut bottom_source: Series,
+    mut stream_a: Series,
+    mut stream_b: Series,
 ) {
     window
         .spawn(cx, move |cx: &mut AsyncWindowContext| {
@@ -112,13 +138,13 @@ fn spawn_updates(
                 let mut phase = 0.0_f64;
                 loop {
                     Timer::after(Duration::from_millis(16)).await;
-                    let _ = top_source.extend_y((0..120).map(|_| {
-                        let y = (phase * 0.8).sin() + 0.15 * (phase * 0.12).cos();
+                    let _ = stream_a.extend_y((0..120).map(|_| {
+                        let y = (phase * 0.9).sin() + 0.2 * (phase * 0.13).cos();
                         phase += 0.02;
                         y
                     }));
-                    let _ = bottom_source.extend_y((0..120).map(|_| {
-                        let y = (phase * 0.45).cos() * 1.2 + 0.2 * (phase * 0.08).sin();
+                    let _ = stream_b.extend_y((0..120).map(|_| {
+                        let y = (phase * 0.45).cos() * 1.15 + 0.15 * (phase * 0.09).sin();
                         phase += 0.02;
                         y
                     }));
@@ -138,23 +164,23 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
-                size(px(960.0), px(720.0)),
+                size(px(1_000.0), px(740.0)),
                 cx,
             ))),
             ..Default::default()
         };
 
         cx.open_window(options, |window, cx| {
-            let (top, bottom, top_source, bottom_source) = build_views(cx);
+            let (top, bottom, stream_a, stream_b) = build_views(cx);
             spawn_updates(
                 window,
                 cx,
                 top.clone(),
                 bottom.clone(),
-                top_source,
-                bottom_source,
+                stream_a,
+                stream_b,
             );
-            cx.new(|_| LinkedP0Demo { top, bottom })
+            cx.new(|_| AdvancedDemo { top, bottom })
         })
         .unwrap();
     });

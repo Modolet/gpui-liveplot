@@ -82,11 +82,7 @@ Application::new().run(|cx| {
 Each example focuses on a single feature:
 
 - Basic usage: `cargo run --example basic`
-- Append-only streaming + FollowLastN: `cargo run --example append_only`
-- Pin annotations: `cargo run --example pins`
-- Shared series across multiple plots: `cargo run --example shared_series`
-- Linked plots (P0: linked X/reset): `cargo run --example linked_p0`
-- Linked plots (P1: linked cursor/brush): `cargo run --example linked_p1`
+- Advanced usage (streaming + linked plots + cursor/brush sync): `cargo run --example advanced`
 
 ## Data model
 
@@ -151,5 +147,5 @@ needed. Themes apply to the whole plot.
 ## Repro steps (manual QA)
 
 1. Run `cargo run --example basic` and verify the plot renders.
-2. Run `cargo run --example append_only` and observe streaming updates.
-3. Run `cargo run --example pins` and click on points to pin/unpin.
+2. Run `cargo run --example advanced` and verify linked interactions:
+   pan/zoom sync, brush sync, cursor sync, and double-click reset sync.
