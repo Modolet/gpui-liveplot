@@ -36,8 +36,8 @@ fn main() {
             plot.add_series(&series);
 
             let config = PlotViewConfig {
-                show_legend: false,
-                show_hover: false,
+                show_legend: true,
+                show_hover: true,
                 ..Default::default()
             };
 

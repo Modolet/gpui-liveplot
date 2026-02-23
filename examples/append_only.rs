@@ -52,8 +52,8 @@ fn build_view(cx: &mut gpui::Context<LiveDemo>) -> (gpui::Entity<GpuiPlotView>, 
     plot.add_series(&series);
 
     let config = PlotViewConfig {
-        show_legend: false,
-        show_hover: false,
+        show_legend: true,
+        show_hover: true,
         ..Default::default()
     };
 

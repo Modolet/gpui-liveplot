@@ -27,8 +27,6 @@ pub enum AxisFormatter {
 
 impl AxisFormatter {
     /// Format a value for display.
-    ///
-    /// Time axes can override this via custom formatting.
     pub fn format(&self, value: f64) -> String {
         match self {
             Self::Default => format!("{value:.6}"),
