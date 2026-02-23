@@ -234,6 +234,42 @@ impl AppendOnlyData {
         }
     }
 
+    /// Find the index of the point with nearest X value.
+    pub fn nearest_index_by_x(&self, x: f64) -> Option<usize> {
+        if self.points.is_empty() || !x.is_finite() {
+            return None;
+        }
+
+        match self.x_mode {
+            XMode::Index => {
+                let max_index = self.points.len().saturating_sub(1) as f64;
+                let clamped = x.round().clamp(0.0, max_index);
+                Some(clamped as usize)
+            }
+            XMode::Explicit => {
+                if !self.monotonic {
+                    return self.nearest_index_linear(x);
+                }
+                let lower = lower_bound(&self.points, x);
+                if lower == 0 {
+                    return Some(0);
+                }
+                if lower >= self.points.len() {
+                    return Some(self.points.len() - 1);
+                }
+                let left = lower - 1;
+                let right = lower;
+                let left_dist = (self.points[left].x - x).abs();
+                let right_dist = (self.points[right].x - x).abs();
+                if left_dist <= right_dist {
+                    Some(left)
+                } else {
+                    Some(right)
+                }
+            }
+        }
+    }
+
     fn update_bounds(&mut self, point: Point) {
         match self.bounds {
             None => {
@@ -248,6 +284,19 @@ impl AppendOnlyData {
                 self.bounds = Some(bounds);
             }
         }
+    }
+
+    fn nearest_index_linear(&self, x: f64) -> Option<usize> {
+        let mut best_index = None;
+        let mut best_distance = f64::INFINITY;
+        for (index, point) in self.points.iter().enumerate() {
+            let distance = (point.x - x).abs();
+            if distance < best_distance {
+                best_distance = distance;
+                best_index = Some(index);
+            }
+        }
+        best_index
     }
 }
 
@@ -370,5 +419,39 @@ mod tests {
         let result = data.extend_points([Point::new(0.0, 1.0)]);
         assert_eq!(result, Err(AppendError::WrongMode));
         assert!(data.is_empty());
+    }
+
+    #[test]
+    fn nearest_index_for_indexed_data_rounds() {
+        let data = AppendOnlyData::from_iter_y([0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(data.nearest_index_by_x(2.4), Some(2));
+        assert_eq!(data.nearest_index_by_x(2.6), Some(3));
+        assert_eq!(data.nearest_index_by_x(-2.0), Some(0));
+        assert_eq!(data.nearest_index_by_x(99.0), Some(3));
+    }
+
+    #[test]
+    fn nearest_index_for_monotonic_explicit_data_uses_binary_search() {
+        let data = AppendOnlyData::from_iter_points([
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 1.0),
+            Point::new(3.0, 3.0),
+            Point::new(10.0, 4.0),
+        ]);
+        assert_eq!(data.nearest_index_by_x(2.2), Some(2));
+        assert_eq!(data.nearest_index_by_x(8.0), Some(3));
+        assert_eq!(data.nearest_index_by_x(-5.0), Some(0));
+    }
+
+    #[test]
+    fn nearest_index_for_non_monotonic_explicit_data_falls_back_to_linear_scan() {
+        let mut data = AppendOnlyData::explicit();
+        let _ = data.extend_points([
+            Point::new(0.0, 0.0),
+            Point::new(5.0, 1.0),
+            Point::new(2.0, 2.0),
+            Point::new(10.0, 3.0),
+        ]);
+        assert_eq!(data.nearest_index_by_x(2.1), Some(2));
     }
 }

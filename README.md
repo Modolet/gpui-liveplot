@@ -85,6 +85,8 @@ Each example focuses on a single feature:
 - Append-only streaming + FollowLastN: `cargo run --example append_only`
 - Pin annotations: `cargo run --example pins`
 - Shared series across multiple plots: `cargo run --example shared_series`
+- Linked plots (P0: linked X/reset): `cargo run --example linked_p0`
+- Linked plots (P1: linked cursor/brush): `cargo run --example linked_p1`
 
 ## Data model
 
@@ -113,6 +115,15 @@ Each example focuses on a single feature:
   - Y axis: zoom Y only.
 - Left click: pin nearest point (toggle).
 - Double click in plot area: reset view (AutoAll).
+
+## Multi-plot linking (GPUI backend)
+
+- Use `PlotLinkGroup` to attach multiple `GpuiPlotView` instances.
+- Configure per-view behavior with `PlotLinkOptions`:
+  - `link_x` / `link_y` for viewport sync
+  - `link_cursor` for crosshair X sync
+  - `link_brush` for brush range sync
+  - `link_reset` for synchronized reset
 
 ## Performance model
 

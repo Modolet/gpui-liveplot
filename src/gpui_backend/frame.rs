@@ -126,6 +126,7 @@ pub(crate) fn build_frame(
             plot_rect,
         );
         build_series(&mut render, plot, state, &transform, plot_rect);
+        build_linked_brush(&mut render, plot, state, &transform, plot_rect);
         build_selection(&mut render, plot, state);
         update_hover_target(
             plot,
@@ -135,6 +136,7 @@ pub(crate) fn build_frame(
             config.pin_threshold_px,
             config.unpin_threshold_px,
         );
+        build_linked_cursor(&mut render, plot, state, &transform, plot_rect, &measurer);
         build_pins(&mut render, plot, &transform, plot_rect, &measurer);
         build_axes(
             &mut render,
@@ -971,6 +973,161 @@ fn build_hover(
             },
         });
     }
+}
+
+fn build_linked_cursor(
+    render: &mut RenderList,
+    plot: &Plot,
+    state: &PlotUiState,
+    transform: &Transform,
+    plot_rect: ScreenRect,
+    measurer: &GpuiTextMeasurer<'_>,
+) {
+    let Some(x) = state.linked_cursor_x else {
+        return;
+    };
+    if state.hover.is_some() {
+        return;
+    }
+
+    let Some(screen_x) = transform
+        .data_to_screen(DataPoint::new(x, transform.viewport().y.min))
+        .map(|point| point.x)
+    else {
+        return;
+    };
+
+    if screen_x < plot_rect.min.x || screen_x > plot_rect.max.x {
+        return;
+    }
+
+    let theme = plot.theme();
+
+    render.push(RenderCommand::ClipRect(plot_rect));
+    render.push(RenderCommand::LineSegments {
+        segments: vec![LineSegment::new(
+            ScreenPoint::new(screen_x, plot_rect.min.y),
+            ScreenPoint::new(screen_x, plot_rect.max.y),
+        )],
+        style: LineStyle {
+            color: with_alpha(theme.axis, LINK_CURSOR_ALPHA),
+            width: LINK_CURSOR_WIDTH,
+        },
+    });
+    render.push(RenderCommand::ClipEnd);
+
+    let mut lines = Vec::new();
+    lines.push(format!("x: {}", plot.x_axis().format_value(x)));
+
+    let mut hidden = 0usize;
+    for series in plot.series() {
+        if !series.is_visible() {
+            continue;
+        }
+        let point = series.with_store(|store| {
+            let data = store.data();
+            data.nearest_index_by_x(x).and_then(|index| data.point(index))
+        });
+        if let Some(point) = point {
+            if lines.len() <= 6 {
+                lines.push(format!(
+                    "{}: {}",
+                    series.name(),
+                    plot.y_axis().format_value(point.y)
+                ));
+            } else {
+                hidden += 1;
+            }
+        }
+    }
+    if hidden > 0 {
+        lines.push(format!("+{hidden} more"));
+    }
+    if lines.is_empty() {
+        return;
+    }
+
+    let label = lines.join("\n");
+    let font_size = 12.0;
+    let size = measurer.measure_multiline(&label, font_size);
+    let mut origin = ScreenPoint::new(screen_x + 10.0, plot_rect.min.y + 10.0);
+    if origin.x + size.0 > plot_rect.max.x {
+        origin.x = screen_x - size.0 - 10.0;
+    }
+    origin = clamp_point(origin, plot_rect, size);
+
+    render.push(RenderCommand::Rect {
+        rect: ScreenRect::new(
+            origin,
+            ScreenPoint::new(origin.x + size.0, origin.y + size.1),
+        ),
+        style: RectStyle {
+            fill: with_alpha(theme.hover_bg, 0.9),
+            stroke: with_alpha(theme.hover_border, 0.9),
+            stroke_width: 1.0,
+        },
+    });
+
+    for (index, line) in label.lines().enumerate() {
+        let line_y = origin.y + index as f32 * 14.0 + 2.0;
+        render.push(RenderCommand::Text {
+            position: ScreenPoint::new(origin.x + 4.0, line_y),
+            text: line.to_string(),
+            style: TextStyle {
+                color: theme.axis,
+                size: font_size,
+            },
+        });
+    }
+}
+
+fn build_linked_brush(
+    render: &mut RenderList,
+    plot: &Plot,
+    state: &PlotUiState,
+    transform: &Transform,
+    plot_rect: ScreenRect,
+) {
+    let Some(range) = state.linked_brush_x else {
+        return;
+    };
+    if state.selection_rect.is_some() {
+        return;
+    }
+
+    let Some(start_x) = transform
+        .data_to_screen(DataPoint::new(range.min, transform.viewport().y.min))
+        .map(|point| point.x)
+    else {
+        return;
+    };
+    let Some(end_x) = transform
+        .data_to_screen(DataPoint::new(range.max, transform.viewport().y.min))
+        .map(|point| point.x)
+    else {
+        return;
+    };
+
+    let min_x = start_x.min(end_x).clamp(plot_rect.min.x, plot_rect.max.x);
+    let max_x = start_x.max(end_x).clamp(plot_rect.min.x, plot_rect.max.x);
+    if (max_x - min_x).abs() < 1.0 {
+        return;
+    }
+
+    let theme = plot.theme();
+    render.push(RenderCommand::ClipRect(plot_rect));
+    render.push(RenderCommand::Rect {
+        rect: ScreenRect::new(
+            ScreenPoint::new(min_x, plot_rect.min.y),
+            ScreenPoint::new(max_x, plot_rect.max.y),
+        ),
+        style: RectStyle {
+            fill: with_alpha(theme.selection_fill, LINK_BRUSH_FILL_ALPHA),
+            stroke: with_alpha(theme.selection_border, LINK_BRUSH_BORDER_ALPHA),
+            stroke_width: 1.0,
+        },
+    });
+    render.push(RenderCommand::ClipEnd);
 }
 
 fn build_legend(

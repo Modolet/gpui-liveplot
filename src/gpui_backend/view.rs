@@ -13,13 +13,16 @@ use crate::interaction::{
 };
 use crate::plot::Plot;
 use crate::transform::Transform;
-use crate::view::Viewport;
+use crate::view::{Range, Viewport};
 
 use super::config::PlotViewConfig;
 use super::constants::DOUBLE_CLICK_PIN_GRACE_MS;
 use super::frame::build_frame;
 use super::geometry::{distance_sq, normalized_rect};
 use super::hover::{compute_hover_target, hover_target_within_threshold};
+use super::link::{
+    LinkBinding, PlotLinkGroup, PlotLinkOptions, ViewSyncKind,
+};
 use super::paint::{paint_frame, to_hsla};
 use super::state::{ClickState, DragMode, DragState, PinToggle, PlotUiState};
 
@@ -32,6 +35,7 @@ pub struct GpuiPlotView {
     plot: Arc<RwLock<Plot>>,
     state: Arc<RwLock<PlotUiState>>,
     config: PlotViewConfig,
+    link: Option<LinkBinding>,
 }
 
 impl GpuiPlotView {
@@ -43,6 +47,7 @@ impl GpuiPlotView {
             plot: Arc::new(RwLock::new(plot)),
             state: Arc::new(RwLock::new(PlotUiState::default())),
             config: PlotViewConfig::default(),
+            link: None,
         }
     }
 
@@ -52,7 +57,20 @@ impl GpuiPlotView {
             plot: Arc::new(RwLock::new(plot)),
             state: Arc::new(RwLock::new(PlotUiState::default())),
             config,
+            link: None,
         }
+    }
+
+    /// Attach this view to a multi-plot link group.
+    ///
+    /// Link groups synchronize viewport/cursor/brush state between views.
+    pub fn with_link_group(mut self, group: PlotLinkGroup, options: PlotLinkOptions) -> Self {
+        self.link = Some(LinkBinding {
+            member_id: group.register_member(),
+            group,
+            options,
+        });
+        self
     }
 
     /// Get a handle for mutating the underlying plot.
@@ -62,6 +80,58 @@ impl GpuiPlotView {
         PlotHandle {
             plot: Arc::clone(&self.plot),
         }
+    }
+
+    fn publish_manual_view_link(&self, viewport: Viewport) {
+        let Some(link) = self.link.as_ref() else {
+            return;
+        };
+        link.group.publish_manual_view(
+            link.member_id,
+            viewport,
+            link.options.link_x,
+            link.options.link_y,
+        );
+    }
+
+    fn publish_reset_link(&self) {
+        let Some(link) = self.link.as_ref() else {
+            return;
+        };
+        if link.options.link_reset {
+            link.group.publish_reset(link.member_id);
+        }
+    }
+
+    fn publish_cursor_link(&self, x: Option<f64>) {
+        let Some(link) = self.link.as_ref() else {
+            return;
+        };
+        if link.options.link_cursor {
+            link.group.publish_cursor_x(link.member_id, x);
+        }
+    }
+
+    fn publish_brush_link(&self, x_range: Option<Range>) {
+        let Some(link) = self.link.as_ref() else {
+            return;
+        };
+        if link.options.link_brush {
+            link.group.publish_brush_x(link.member_id, x_range);
+        }
+    }
+
+    fn apply_manual_view_with_link(
+        &self,
+        plot: &mut Plot,
+        state: &mut PlotUiState,
+        rect: ScreenRect,
+        viewport: Viewport,
+    ) {
+        apply_manual_view(plot, state, rect, viewport);
+        state.linked_brush_x = None;
+        self.publish_manual_view_link(viewport);
+        self.publish_brush_link(None);
     }
 
     fn on_mouse_down(&mut self, ev: &MouseDownEvent, cx: &mut Context<Self>) {
@@ -101,6 +171,9 @@ impl GpuiPlotView {
                     }
                 }
                 plot.reset_view();
+                state.linked_brush_x = None;
+                self.publish_reset_link();
+                self.publish_brush_link(None);
             }
             state.clear_interaction();
             cx.notify();
@@ -144,6 +217,14 @@ impl GpuiPlotView {
         } else {
             state.hover = None;
         }
+        let linked_cursor_x = state.hover.and_then(|_| {
+            state
+                .transform
+                .as_ref()
+                .and_then(|transform| transform.screen_to_data(pos))
+                .map(|point| point.x)
+        });
+        self.publish_cursor_link(linked_cursor_x);
 
         let Some(mut drag) = state.drag.clone() else {
             cx.notify();
@@ -171,7 +252,12 @@ impl GpuiPlotView {
                     if let Ok(mut plot) = self.plot.write() {
                         if let Some(viewport) = plot.viewport() {
                             if let Some(next) = pan_viewport(viewport, delta, &transform) {
-                                apply_manual_view(&mut plot, &mut state, rect, next);
+                                self.apply_manual_view_with_link(
+                                    &mut plot,
+                                    &mut state,
+                                    rect,
+                                    next,
+                                );
                             }
                         }
                     }
@@ -190,7 +276,12 @@ impl GpuiPlotView {
                                 .screen_to_data(pos)
                                 .unwrap_or_else(|| viewport.x_center());
                             let next = zoom_viewport(viewport, center, factor, 1.0);
-                            apply_manual_view(&mut plot, &mut state, rect, next);
+                            self.apply_manual_view_with_link(
+                                &mut plot,
+                                &mut state,
+                                rect,
+                                next,
+                            );
                         }
                     }
                 }
@@ -205,7 +296,12 @@ impl GpuiPlotView {
                                 .screen_to_data(pos)
                                 .unwrap_or_else(|| viewport.y_center());
                             let next = zoom_viewport(viewport, center, 1.0, factor);
-                            apply_manual_view(&mut plot, &mut state, rect, next);
+                            self.apply_manual_view_with_link(
+                                &mut plot,
+                                &mut state,
+                                rect,
+                                next,
+                            );
                         }
                     }
                 }
@@ -232,7 +328,13 @@ impl GpuiPlotView {
                     if let Ok(mut plot) = self.plot.write() {
                         if let Some(viewport) = plot.viewport() {
                             if let Some(next) = zoom_to_rect(viewport, rect, &transform) {
-                                apply_manual_view(&mut plot, &mut state, transform.screen(), next);
+                                self.apply_manual_view_with_link(
+                                    &mut plot,
+                                    &mut state,
+                                    transform.screen(),
+                                    next,
+                                );
+                                self.publish_brush_link(Some(next.x));
                             }
                         }
                     }
@@ -281,6 +383,7 @@ impl GpuiPlotView {
 
         state.drag = None;
         state.selection_rect = None;
+        self.publish_cursor_link(None);
         cx.notify();
     }
 
@@ -317,7 +420,7 @@ impl GpuiPlotView {
                 if factor_x != 1.0 || factor_y != 1.0 {
                     let next = zoom_viewport(viewport, center, factor_x, factor_y);
                     if let Some(rect) = state.plot_rect {
-                        apply_manual_view(&mut plot, &mut state, rect, next);
+                        self.apply_manual_view_with_link(&mut plot, &mut state, rect, next);
                     }
                 }
             }
@@ -332,6 +435,7 @@ impl Render for GpuiPlotView {
         let plot = Arc::clone(&self.plot);
         let state = Arc::clone(&self.state);
         let config = self.config.clone();
+        let link = self.link.clone();
         let theme = plot.read().expect("plot lock").theme().clone();
 
         div()
@@ -342,6 +446,9 @@ impl Render for GpuiPlotView {
                     move |bounds, window, _| {
                         let mut plot = plot.write().expect("plot lock");
                         let mut state = state.write().expect("plot state lock");
+                        if let Some(link) = &link {
+                            apply_link_updates(link, &mut plot, &mut state);
+                        }
                         build_frame(&mut plot, &mut state, &config, bounds, window)
                     },
                     move |_, frame, window, cx| {
@@ -406,6 +513,83 @@ impl PlotHandle {
     pub fn write<R>(&self, f: impl FnOnce(&mut Plot) -> R) -> R {
         let mut plot = self.plot.write().expect("plot lock");
         f(&mut plot)
+    }
+}
+
+fn apply_link_updates(link: &LinkBinding, plot: &mut Plot, state: &mut PlotUiState) {
+    if let Some(update) = link.group.latest_view_update()
+        && update.seq > state.link_view_seq
+    {
+        state.link_view_seq = update.seq;
+        if update.source != link.member_id {
+            match update.kind {
+                ViewSyncKind::Reset => {
+                    if link.options.link_reset {
+                        plot.reset_view();
+                        state.viewport = None;
+                        state.transform = None;
+                        state.linked_brush_x = None;
+                    }
+                }
+                ViewSyncKind::Manual {
+                    viewport,
+                    sync_x,
+                    sync_y,
+                } => {
+                    let mut next = plot
+                        .viewport()
+                        .or_else(|| plot.data_bounds())
+                        .unwrap_or(viewport);
+                    let mut changed = false;
+                    if sync_x && link.options.link_x {
+                        next.x = viewport.x;
+                        changed = true;
+                    }
+                    if sync_y && link.options.link_y {
+                        next.y = viewport.y;
+                        changed = true;
+                    }
+                    if changed {
+                        plot.set_manual_view(next);
+                        state.viewport = Some(next);
+                        if let Some(rect) = state.plot_rect {
+                            state.transform = Transform::new(next, rect);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(update) = link.group.latest_cursor_update()
+        && update.seq > state.link_cursor_seq
+    {
+        state.link_cursor_seq = update.seq;
+        if update.source != link.member_id && link.options.link_cursor {
+            state.linked_cursor_x = update.x;
+        }
+    }
+
+    if let Some(update) = link.group.latest_brush_update()
+        && update.seq > state.link_brush_seq
+    {
+        state.link_brush_seq = update.seq;
+        if update.source != link.member_id && link.options.link_brush {
+            state.linked_brush_x = update.x_range;
+            if let Some(x_range) = update.x_range {
+                let y_range = plot
+                    .viewport()
+                    .or_else(|| plot.data_bounds())
+                    .map(|viewport| viewport.y)
+                    .unwrap_or_else(|| Range::new(0.0, 1.0));
+                let next = Viewport::new(x_range, y_range);
+                plot.set_manual_view(next);
+                state.viewport = Some(next);
+                if let Some(rect) = state.plot_rect {
+                    state.transform = Transform::new(next, rect);
+                }
+            }
+        }
     }
 }
 

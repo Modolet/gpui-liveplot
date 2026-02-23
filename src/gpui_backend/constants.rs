@@ -21,3 +21,7 @@ pub(crate) const LEGEND_SWATCH_WIDTH: f32 = 16.0;
 pub(crate) const LEGEND_SWATCH_GAP: f32 = 6.0;
 pub(crate) const LEGEND_HIDDEN_ALPHA: f32 = 0.35;
 pub(crate) const LEGEND_TEXT_HIDDEN_ALPHA: f32 = 0.45;
+pub(crate) const LINK_CURSOR_ALPHA: f32 = 0.65;
+pub(crate) const LINK_CURSOR_WIDTH: f32 = 1.0;
+pub(crate) const LINK_BRUSH_FILL_ALPHA: f32 = 0.35;
+pub(crate) const LINK_BRUSH_BORDER_ALPHA: f32 = 0.9;

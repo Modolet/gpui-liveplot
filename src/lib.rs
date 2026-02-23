@@ -52,4 +52,6 @@ pub use series::{Series, SeriesId, SeriesKind};
 pub use style::Theme;
 pub use view::{Range, View, Viewport};
 
-pub use gpui_backend::{GpuiPlotView, PlotHandle, PlotViewConfig};
+pub use gpui_backend::{
+    GpuiPlotView, LinkMemberId, PlotHandle, PlotLinkGroup, PlotLinkOptions, PlotViewConfig,
+};

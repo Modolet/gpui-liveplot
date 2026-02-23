@@ -11,10 +11,12 @@ mod constants;
 mod frame;
 mod geometry;
 mod hover;
+mod link;
 mod paint;
 mod state;
 mod text;
 mod view;
 
 pub use config::PlotViewConfig;
+pub use link::{LinkMemberId, PlotLinkGroup, PlotLinkOptions};
 pub use view::{GpuiPlotView, PlotHandle};

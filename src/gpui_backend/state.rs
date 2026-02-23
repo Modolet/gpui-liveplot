@@ -10,7 +10,7 @@ use crate::interaction::{HitRegion, Pin, PlotRegions};
 use crate::render::RenderCacheKey;
 use crate::series::SeriesId;
 use crate::transform::Transform;
-use crate::view::Viewport;
+use crate::view::{Range, Viewport};
 
 use super::geometry::rect_contains;
 
@@ -95,6 +95,11 @@ pub(crate) struct PlotUiState {
     pub(crate) selection_rect: Option<ScreenRect>,
     pub(crate) hover: Option<ScreenPoint>,
     pub(crate) last_cursor: Option<ScreenPoint>,
+    pub(crate) linked_cursor_x: Option<f64>,
+    pub(crate) linked_brush_x: Option<Range>,
+    pub(crate) link_view_seq: u64,
+    pub(crate) link_cursor_seq: u64,
+    pub(crate) link_brush_seq: u64,
     pub(crate) decimation_scratch: DecimationScratch,
     pub(crate) series_cache: HashMap<SeriesId, SeriesCache>,
     pub(crate) legend_layout: Option<LegendLayout>,
@@ -120,6 +125,11 @@ impl Default for PlotUiState {
             selection_rect: None,
             hover: None,
             last_cursor: None,
+            linked_cursor_x: None,
+            linked_brush_x: None,
+            link_view_seq: 0,
+            link_cursor_seq: 0,
+            link_brush_seq: 0,
             decimation_scratch: DecimationScratch::new(),
             series_cache: HashMap::new(),
             legend_layout: None,
