@@ -6,7 +6,7 @@ use gpui::{
     px, size,
 };
 
-use gpui_plot::{
+use gpui_liveplot::{
     AxisConfig, Color, GpuiPlotView, LineStyle, MarkerShape, MarkerStyle, Plot, PlotLinkGroup,
     PlotLinkOptions, PlotViewConfig, Range, Series, SeriesKind, Theme, View,
 };
@@ -59,7 +59,7 @@ fn build_views(
         (0..200).map(|i| {
             let x = i as f64 * 80.0 + 40.0;
             let y = (x * 0.02).sin() * 0.9;
-            gpui_plot::Point::new(x, y)
+            gpui_liveplot::Point::new(x, y)
         }),
         SeriesKind::Scatter(MarkerStyle {
             color: Color::new(0.95, 0.25, 0.55, 1.0),
@@ -91,7 +91,11 @@ fn build_views(
     let mut bottom_plot = Plot::builder()
         .theme(Theme::dark())
         .x_axis(AxisConfig::builder().title("Sample").build())
-        .y_axis(AxisConfig::builder().title("Bottom: stream + baseline").build())
+        .y_axis(
+            AxisConfig::builder()
+                .title("Bottom: stream + baseline")
+                .build(),
+        )
         .view(View::FollowLastNXY { points: 2_000 })
         .build();
     bottom_plot.add_series(&stream_b);
@@ -172,14 +176,7 @@ fn main() {
 
         cx.open_window(options, |window, cx| {
             let (top, bottom, stream_a, stream_b) = build_views(cx);
-            spawn_updates(
-                window,
-                cx,
-                top.clone(),
-                bottom.clone(),
-                stream_a,
-                stream_b,
-            );
+            spawn_updates(window, cx, top.clone(), bottom.clone(), stream_a, stream_b);
             cx.new(|_| AdvancedDemo { top, bottom })
         })
         .unwrap();

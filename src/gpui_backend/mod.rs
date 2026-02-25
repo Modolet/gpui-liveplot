@@ -1,4 +1,4 @@
-//! GPUI integration for gpui_plot.
+//! GPUI integration for gpui_liveplot.
 //!
 //! This module provides a GPUI view that renders a [`Plot`](crate::plot::Plot)
 //! and handles interactive behaviors such as pan, zoom, box zoom, hover

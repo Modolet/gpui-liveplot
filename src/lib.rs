@@ -1,4 +1,4 @@
-//! gpui_plot is a high-performance plotting library built for GPUI.
+//! gpui_liveplot is a high-performance plotting library built for GPUI.
 //!
 //! # Overview
 //! - Designed for append-only, high-throughput telemetry and sensor streams.
@@ -11,7 +11,7 @@
 //!
 //! # Quick start
 //! ```rust
-//! use gpui_plot::{LineStyle, Plot, Series, SeriesKind, Theme};
+//! use gpui_liveplot::{LineStyle, Plot, Series, SeriesKind, Theme};
 //!
 //! let mut plot = Plot::builder().theme(Theme::dark()).build();
 //! let series = Series::from_iter_y(

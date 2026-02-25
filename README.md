@@ -1,50 +1,57 @@
-# gpui_plot
+# gpui-liveplot
 
-A high-performance plotting library for GPUI, focused on append-only sensor and
-telemetry data. The core crate is backend-agnostic; a GPUI backend is included
-for rendering and interaction.
+`gpui-liveplot` is a high-performance plotting library for GPUI, designed for
+append-only telemetry and sensor streams.
 
-## Highlights
+It provides a backend-agnostic plot core plus a built-in GPUI backend for
+layout, rendering, and interaction.
+
+## Features
 
 - Append-only data model optimized for streaming workloads.
-- Plot-level axes shared by all series (consistent transforms and formatting).
-- Viewport-aware decimation and multi-level summaries for stable 60fps.
-- Interactive pan, zoom, box zoom, hover readout, and pin annotations.
-- Light/dark themes and configurable styling.
-
-## Feature flags
-
-- None at the moment.
+- Shared plot-level axes across all series.
+- Viewport-aware decimation with multi-level summaries for stable interaction at scale.
+- Interactive pan, zoom, box-zoom, hover readout, and point pinning.
+- Linked multi-plot interactions (`x/y` view sync, cursor sync, brush sync, reset sync).
+- Configurable styles and dark/light themes.
 
 ## Installation
 
-Add to your `Cargo.toml`:
+Add this crate to your project:
 
 ```toml
 [dependencies]
-gpui_plot = "0.1"
+gpui-liveplot = "0.1"
 ```
 
-## Quick start (plot only)
+In Rust code, import it as `gpui_liveplot`:
 
 ```rust
-use gpui_plot::{LineStyle, Plot, Series, SeriesKind, Theme};
+use gpui_liveplot::{Plot, Series, SeriesKind};
+```
+
+## Quick Start (Plot Core)
+
+```rust
+use gpui_liveplot::{LineStyle, Plot, Series, SeriesKind, Theme};
 
 let mut plot = Plot::builder().theme(Theme::dark()).build();
+
 let series = Series::from_iter_y(
     "sensor",
     (0..1000).map(|i| (i as f64 * 0.01).sin()),
     SeriesKind::Line(LineStyle::default()),
 );
+
 plot.add_series(&series);
 plot.refresh_viewport(0.05, 1e-6);
 ```
 
-## Quick start (GPUI)
+## Quick Start (GPUI Backend)
 
 ```rust
 use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
-use gpui_plot::{AxisConfig, GpuiPlotView, Plot, Series, SeriesKind, Theme};
+use gpui_liveplot::{AxisConfig, GpuiPlotView, Plot, Series, SeriesKind, Theme};
 
 Application::new().run(|cx| {
     let options = WindowOptions {
@@ -70,82 +77,68 @@ Application::new().run(|cx| {
             .build();
         plot.add_series(&series);
 
-        let view = GpuiPlotView::new(plot);
-        cx.new(|_| view)
+        cx.new(|_| GpuiPlotView::new(plot))
     })
     .unwrap();
 });
 ```
 
+## Streaming Data
+
+`Series` is append-only. You can keep a shared handle and push new points over time.
+
+- Implicit X mode: `Series::line` / `Series::scatter` + `push_y` / `extend_y`
+- Explicit X/Y mode: `Series::from_iter_points` + `push_point` / `extend_points`
+
+`Plot::add_series` stores a shared series handle, so appends from other handles
+become visible immediately.
+
+## View Modes
+
+- `View::AutoAll` (default)
+- `View::Manual`
+- `View::FollowLastN`
+- `View::FollowLastNXY`
+
+## Interaction (GPUI Backend)
+
+- Left drag in plot area: pan
+- Right drag in plot area: box zoom
+- Mouse wheel in plot area: zoom both axes around cursor
+- Mouse wheel on axis area: zoom single axis
+- Left click: toggle nearest-point pin
+- Double click in plot area: reset view
+
+## Multi-Plot Linking
+
+Use `PlotLinkGroup` and `PlotLinkOptions` to link multiple `GpuiPlotView` instances.
+
+See `examples/advanced.rs` for a complete linked-streaming demo.
+
 ## Examples
 
-Each example focuses on a single feature:
-
 - Basic usage: `cargo run --example basic`
-- Advanced usage (streaming + linked plots + cursor/brush sync): `cargo run --example advanced`
+- Streaming + linked plots: `cargo run --example advanced`
 
-## Data model
+## Performance Notes
 
-- Append-only series data for high-throughput streaming.
-- Two X modes:
-  - Implicit X (index-based): `Series::line` / `Series::scatter` + `push_y`.
-  - Explicit X/Y: `Series::from_iter_points` or `push_point`.
-- `Plot::add_series` always stores a shared-series handle.
-- Explicit X values are expected to be monotonic for fast range queries; the
-  library will still render non-monotonic data but may fall back to full scans.
-
-## View modes
-
-- `View::AutoAll`: Automatically fit all visible data (default).
-- `View::Manual`: View remains fixed; used after user interaction.
-- `View::FollowLastN`: Follow last N points on X (oscilloscope-style).
-- `View::FollowLastNXY`: Follow last N points on X and auto-scale Y.
-
-## Interaction summary (GPUI backend)
-
-- Left drag in plot area: pan.
-- Right drag in plot area: box zoom.
-- Mouse wheel:
-  - Plot area: zoom both axes around cursor.
-  - X axis: zoom X only.
-  - Y axis: zoom Y only.
-- Left click: pin nearest point (toggle).
-- Double click in plot area: reset view (AutoAll).
-
-## Multi-plot linking (GPUI backend)
-
-- Use `PlotLinkGroup` to attach multiple `GpuiPlotView` instances.
-- Configure per-view behavior with `PlotLinkOptions`:
-  - `link_x` / `link_y` for viewport sync
-  - `link_cursor` for crosshair X sync
-  - `link_brush` for brush range sync
-  - `link_reset` for synchronized reset
-
-## Performance model
-
-- Viewport-aware decimation (min/max envelope) keeps line rendering near
-  `O(plot_width)`.
-- Multi-level summaries provide efficient zoomed-out rendering.
-- Render caches are keyed by viewport, size, and data generation.
-
-## Theming
-
-Use `Theme::dark()` or `Theme::light()` and customize axis/grid colors as
-needed. Themes apply to the whole plot.
+- Line rendering is kept close to `O(plot_width)` through decimation.
+- Multi-level summaries speed up zoomed-out views.
+- Render caching is keyed by viewport, size, and data generation.
 
 ## Limitations
 
-- Append-only data model is the primary target; random inserts/deletes are not
-  optimized.
-- Only linear axes are supported in v0.1.
+- Append-only workflows are the primary optimization target.
+- Only linear axes are currently supported.
 
-## Development checks
+## Development
 
-- `cargo check`
-- `cargo clippy --all-targets`
+```bash
+RUSTC_WRAPPER= cargo check
+RUSTC_WRAPPER= cargo clippy --all-targets
+cargo test
+```
 
-## Repro steps (manual QA)
+## License
 
-1. Run `cargo run --example basic` and verify the plot renders.
-2. Run `cargo run --example advanced` and verify linked interactions:
-   pan/zoom sync, brush sync, cursor sync, and double-click reset sync.
+MIT. See [LICENSE](LICENSE).

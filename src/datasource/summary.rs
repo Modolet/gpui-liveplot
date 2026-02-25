@@ -199,7 +199,7 @@ impl SummaryLevels {
         let level = &mut self.levels[level_index];
         level.buckets.push(bucket);
         let len = level.buckets.len();
-        if len.is_multiple_of(2) {
+        if len % 2 == 0 {
             let merged = MinMax::merge(level.buckets[len - 2], level.buckets[len - 1]);
             self.push_bucket(level_index + 1, merged);
         }

@@ -1026,7 +1026,8 @@ fn build_linked_cursor(
         }
         let point = series.with_store(|store| {
             let data = store.data();
-            data.nearest_index_by_x(x).and_then(|index| data.point(index))
+            data.nearest_index_by_x(x)
+                .and_then(|index| data.point(index))
         });
         if let Some(point) = point {
             if lines.len() <= 6 {

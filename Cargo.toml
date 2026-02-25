@@ -1,7 +1,16 @@
 [package]
-name = "gpui_plot"
+name = "gpui-liveplot"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "High-performance append-only plotting for GPUI applications."
+license = "MIT"
+repository = "https://github.com/Modolet/gpui-liveplot"
+homepage = "https://github.com/Modolet/gpui-liveplot"
+documentation = "https://docs.rs/gpui-liveplot"
+readme = "README.md"
+keywords = ["gpui", "plot", "telemetry", "streaming", "visualization"]
+categories = ["gui", "visualization"]
 
 [lib]
 path = "src/lib.rs"

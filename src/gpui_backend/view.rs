@@ -20,9 +20,7 @@ use super::constants::DOUBLE_CLICK_PIN_GRACE_MS;
 use super::frame::build_frame;
 use super::geometry::{distance_sq, normalized_rect};
 use super::hover::{compute_hover_target, hover_target_within_threshold};
-use super::link::{
-    LinkBinding, PlotLinkGroup, PlotLinkOptions, ViewSyncKind,
-};
+use super::link::{LinkBinding, PlotLinkGroup, PlotLinkOptions, ViewSyncKind};
 use super::paint::{paint_frame, to_hsla};
 use super::state::{ClickState, DragMode, DragState, PinToggle, PlotUiState};
 
@@ -252,12 +250,7 @@ impl GpuiPlotView {
                     if let Ok(mut plot) = self.plot.write() {
                         if let Some(viewport) = plot.viewport() {
                             if let Some(next) = pan_viewport(viewport, delta, &transform) {
-                                self.apply_manual_view_with_link(
-                                    &mut plot,
-                                    &mut state,
-                                    rect,
-                                    next,
-                                );
+                                self.apply_manual_view_with_link(&mut plot, &mut state, rect, next);
                             }
                         }
                     }
@@ -276,12 +269,7 @@ impl GpuiPlotView {
                                 .screen_to_data(pos)
                                 .unwrap_or_else(|| viewport.x_center());
                             let next = zoom_viewport(viewport, center, factor, 1.0);
-                            self.apply_manual_view_with_link(
-                                &mut plot,
-                                &mut state,
-                                rect,
-                                next,
-                            );
+                            self.apply_manual_view_with_link(&mut plot, &mut state, rect, next);
                         }
                     }
                 }
@@ -296,12 +284,7 @@ impl GpuiPlotView {
                                 .screen_to_data(pos)
                                 .unwrap_or_else(|| viewport.y_center());
                             let next = zoom_viewport(viewport, center, 1.0, factor);
-                            self.apply_manual_view_with_link(
-                                &mut plot,
-                                &mut state,
-                                rect,
-                                next,
-                            );
+                            self.apply_manual_view_with_link(&mut plot, &mut state, rect, next);
                         }
                     }
                 }

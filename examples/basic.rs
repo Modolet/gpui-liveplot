@@ -1,6 +1,6 @@
 use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
 
-use gpui_plot::{
+use gpui_liveplot::{
     AxisConfig, Color, GpuiPlotView, LineStyle, Plot, PlotViewConfig, Series, SeriesKind, Theme,
 };
 

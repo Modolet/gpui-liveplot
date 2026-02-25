@@ -2117,6 +2117,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gpui-liveplot"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+]
+
+[[package]]
 name = "gpui-macros"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2200,13 +2207,6 @@ dependencies = [
  "gpui_collections",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "gpui_plot"
-version = "0.1.0"
-dependencies = [
- "gpui",
 ]
 
 [[package]]
