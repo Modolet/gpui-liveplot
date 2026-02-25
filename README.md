@@ -3,8 +3,8 @@
 `gpui-liveplot` is a high-performance plotting library for GPUI, designed for
 append-only telemetry and sensor streams.
 
-It provides a backend-agnostic plot core plus a built-in GPUI backend for
-layout, rendering, and interaction.
+It focuses on GPUI-native layout, rendering, and interaction for real-time
+charts.
 
 ## Features
 
@@ -30,24 +30,7 @@ In Rust code, import it as `gpui_liveplot`:
 use gpui_liveplot::{Plot, Series, SeriesKind};
 ```
 
-## Quick Start (Plot Core)
-
-```rust
-use gpui_liveplot::{LineStyle, Plot, Series, SeriesKind, Theme};
-
-let mut plot = Plot::builder().theme(Theme::dark()).build();
-
-let series = Series::from_iter_y(
-    "sensor",
-    (0..1000).map(|i| (i as f64 * 0.01).sin()),
-    SeriesKind::Line(LineStyle::default()),
-);
-
-plot.add_series(&series);
-plot.refresh_viewport(0.05, 1e-6);
-```
-
-## Quick Start (GPUI Backend)
+## Quick Start
 
 ```rust
 use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
