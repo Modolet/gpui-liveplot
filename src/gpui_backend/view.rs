@@ -229,6 +229,13 @@ impl GpuiPlotView {
             return;
         };
 
+        if !is_drag_button_held(drag.mode, ev.pressed_button) {
+            state.clear_interaction();
+            self.publish_cursor_link(None);
+            cx.notify();
+            return;
+        }
+
         let moved_sq = distance_sq(drag.start, pos);
         if !drag.active && moved_sq > self.config.drag_threshold_px.powi(2) {
             drag.active = true;
@@ -370,6 +377,13 @@ impl GpuiPlotView {
         cx.notify();
     }
 
+    fn on_mouse_up_out(&mut self, _ev: &MouseUpEvent, cx: &mut Context<Self>) {
+        let mut state = self.state.write().expect("plot state lock");
+        state.clear_interaction();
+        self.publish_cursor_link(None);
+        cx.notify();
+    }
+
     fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &Window, cx: &mut Context<Self>) {
         let pos = screen_point(ev.position);
         let mut state = self.state.write().expect("plot state lock");
@@ -465,6 +479,18 @@ impl Render for GpuiPlotView {
                 MouseButton::Right,
                 cx.listener(|this, ev, _, cx| {
                     this.on_mouse_up(ev, cx);
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_up_out(ev, cx);
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Right,
+                cx.listener(|this, ev, _, cx| {
+                    this.on_mouse_up_out(ev, cx);
                 }),
             )
             .on_scroll_wheel(cx.listener(|this, ev, window, cx| {
@@ -602,6 +628,14 @@ fn revert_pin_toggle(plot: &mut Plot, toggle: PinToggle) {
     }
 }
 
+fn is_drag_button_held(mode: DragMode, pressed_button: Option<MouseButton>) -> bool {
+    let expected = match mode {
+        DragMode::ZoomRect => MouseButton::Right,
+        DragMode::Pan | DragMode::ZoomX | DragMode::ZoomY => MouseButton::Left,
+    };
+    pressed_button == Some(expected)
+}
+
 trait ViewportCenter {
     fn center(&self) -> DataPoint;
     fn x_center(&self) -> DataPoint;
@@ -628,5 +662,32 @@ impl ViewportCenter for Viewport {
             (self.x.min + self.x.max) * 0.5,
             (self.y.min + self.y.max) * 0.5,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DragMode, MouseButton, is_drag_button_held};
+
+    #[test]
+    fn drag_requires_matching_button() {
+        assert!(is_drag_button_held(DragMode::Pan, Some(MouseButton::Left)));
+        assert!(is_drag_button_held(
+            DragMode::ZoomX,
+            Some(MouseButton::Left)
+        ));
+        assert!(is_drag_button_held(
+            DragMode::ZoomY,
+            Some(MouseButton::Left)
+        ));
+        assert!(is_drag_button_held(
+            DragMode::ZoomRect,
+            Some(MouseButton::Right)
+        ));
+        assert!(!is_drag_button_held(
+            DragMode::Pan,
+            Some(MouseButton::Right)
+        ));
+        assert!(!is_drag_button_held(DragMode::ZoomRect, None));
     }
 }
