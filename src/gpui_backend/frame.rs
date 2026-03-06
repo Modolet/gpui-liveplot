@@ -657,23 +657,23 @@ fn build_axes(
             if tick.is_major && !tick.label.is_empty() {
                 let size = measurer.measure(&tick.label, plot.x_axis().label_size());
                 let pos = x_tick_label_position(x, size, plot_rect);
-                let label_left = pos.x;
-                let label_right = pos.x + size.0;
                 let label_rect =
-                    ScreenRect::new(pos, ScreenPoint::new(label_right, pos.y + size.1));
-                let overlaps_title = x_title_rect
-                    .map(|rect| rect_intersects(label_rect, rect))
-                    .unwrap_or(false);
-                if !overlaps_title && label_left >= last_x_label_right + label_gap {
-                    render.push(RenderCommand::Text {
-                        position: pos,
-                        text: tick.label.clone(),
-                        style: TextStyle {
-                            color: theme.axis,
-                            size: plot.x_axis().label_size(),
-                        },
-                    });
-                    last_x_label_right = label_right;
+                    ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, pos.y + size.1));
+                if let Some(visible_rect) = tick_label_visible_rect(label_rect, x_axis_rect) {
+                    let overlaps_title = x_title_rect
+                        .map(|rect| rect_intersects(visible_rect, rect))
+                        .unwrap_or(false);
+                    if !overlaps_title && visible_rect.min.x >= last_x_label_right + label_gap {
+                        render.push(RenderCommand::Text {
+                            position: pos,
+                            text: tick.label.clone(),
+                            style: TextStyle {
+                                color: theme.axis,
+                                size: plot.x_axis().label_size(),
+                            },
+                        });
+                        last_x_label_right = visible_rect.max.x;
+                    }
                 }
             }
         }
@@ -722,23 +722,23 @@ fn build_axes(
             if tick.is_major && !tick.label.is_empty() {
                 let size = measurer.measure(&tick.label, plot.y_axis().label_size());
                 let pos = y_tick_label_position(y, size, plot_rect);
-                let label_top = pos.y;
-                let label_bottom = pos.y + size.1;
                 let label_rect =
-                    ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, label_bottom));
-                let overlaps_title = y_title_rect
-                    .map(|rect| rect_intersects(label_rect, rect))
-                    .unwrap_or(false);
-                if !overlaps_title && label_bottom <= last_y_label_top - label_gap {
-                    render.push(RenderCommand::Text {
-                        position: pos,
-                        text: tick.label.clone(),
-                        style: TextStyle {
-                            color: theme.axis,
-                            size: plot.y_axis().label_size(),
-                        },
-                    });
-                    last_y_label_top = label_top;
+                    ScreenRect::new(pos, ScreenPoint::new(pos.x + size.0, pos.y + size.1));
+                if let Some(visible_rect) = tick_label_visible_rect(label_rect, y_axis_rect) {
+                    let overlaps_title = y_title_rect
+                        .map(|rect| rect_intersects(visible_rect, rect))
+                        .unwrap_or(false);
+                    if !overlaps_title && visible_rect.max.y <= last_y_label_top - label_gap {
+                        render.push(RenderCommand::Text {
+                            position: pos,
+                            text: tick.label.clone(),
+                            style: TextStyle {
+                                color: theme.axis,
+                                size: plot.y_axis().label_size(),
+                            },
+                        });
+                        last_y_label_top = visible_rect.min.y;
+                    }
                 }
             }
         }
@@ -836,6 +836,20 @@ fn y_tick_label_position(y: f32, size: (f32, f32), plot_rect: ScreenRect) -> Scr
     )
 }
 
+fn tick_label_visible_rect(label_rect: ScreenRect, axis_rect: ScreenRect) -> Option<ScreenRect> {
+    let min_x = label_rect.min.x.max(axis_rect.min.x);
+    let min_y = label_rect.min.y.max(axis_rect.min.y);
+    let max_x = label_rect.max.x.min(axis_rect.max.x);
+    let max_y = label_rect.max.y.min(axis_rect.max.y);
+
+    (min_x < max_x && min_y < max_y).then(|| {
+        ScreenRect::new(
+            ScreenPoint::new(min_x, min_y),
+            ScreenPoint::new(max_x, max_y),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -866,6 +880,39 @@ mod tests {
 
         assert_eq!(pos.x, 58.0);
         assert_eq!(pos.y, 11.0);
+    }
+
+    #[test]
+    fn x_tick_label_visible_rect_clips_to_x_axis_bounds() {
+        let axis_rect = ScreenRect::new(
+            ScreenPoint::new(100.0, 180.0),
+            ScreenPoint::new(300.0, 220.0),
+        );
+        let label_rect = ScreenRect::new(
+            ScreenPoint::new(80.0, 192.0),
+            ScreenPoint::new(140.0, 204.0),
+        );
+
+        let visible = tick_label_visible_rect(label_rect, axis_rect).expect("visible rect");
+
+        assert_eq!(visible.min.x, 100.0);
+        assert_eq!(visible.max.x, 140.0);
+        assert_eq!(visible.min.y, 192.0);
+        assert_eq!(visible.max.y, 204.0);
+    }
+
+    #[test]
+    fn tick_label_visible_rect_returns_none_when_fully_outside() {
+        let axis_rect = ScreenRect::new(
+            ScreenPoint::new(100.0, 180.0),
+            ScreenPoint::new(300.0, 220.0),
+        );
+        let label_rect = ScreenRect::new(
+            ScreenPoint::new(20.0, 192.0),
+            ScreenPoint::new(60.0, 204.0),
+        );
+
+        assert!(tick_label_visible_rect(label_rect, axis_rect).is_none());
     }
 }
 
