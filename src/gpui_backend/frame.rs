@@ -907,10 +907,8 @@ mod tests {
             ScreenPoint::new(100.0, 180.0),
             ScreenPoint::new(300.0, 220.0),
         );
-        let label_rect = ScreenRect::new(
-            ScreenPoint::new(20.0, 192.0),
-            ScreenPoint::new(60.0, 204.0),
-        );
+        let label_rect =
+            ScreenRect::new(ScreenPoint::new(20.0, 192.0), ScreenPoint::new(60.0, 204.0));
 
         assert!(tick_label_visible_rect(label_rect, axis_rect).is_none());
     }

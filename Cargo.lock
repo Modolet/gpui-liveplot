@@ -2255,7 +2255,7 @@ dependencies = [
 
 [[package]]
 name = "gpui-liveplot"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "gpui",
  "gpui-component",
