@@ -420,11 +420,10 @@ impl PlotView {
 
         let line_height = px(16.0);
         let delta = ev.delta.pixel_delta(line_height);
-        let zoom_delta = -f32::from(delta.y);
-        if zoom_delta.abs() < 0.01 {
+        let factor = scroll_zoom_factor(f32::from(delta.y));
+        if factor == 1.0 {
             return;
         }
-        let factor = (1.0 - (zoom_delta as f64 * 0.002)).clamp(0.1, 10.0);
 
         if let Ok(mut plot) = self.plot.write() {
             if let Some(viewport) = plot.viewport() {
@@ -688,6 +687,14 @@ fn is_drag_button_held(mode: DragMode, pressed_button: Option<MouseButton>) -> b
     pressed_button == Some(expected)
 }
 
+fn scroll_zoom_factor(delta_y: f32) -> f64 {
+    if delta_y.abs() < 0.01 {
+        return 1.0;
+    }
+
+    (1.0 + (delta_y as f64 * 0.002)).clamp(0.1, 10.0)
+}
+
 trait ViewportCenter {
     fn center(&self) -> DataPoint;
     fn x_center(&self) -> DataPoint;
@@ -719,7 +726,7 @@ impl ViewportCenter for Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::{DragMode, MouseButton, is_drag_button_held};
+    use super::{DragMode, MouseButton, is_drag_button_held, scroll_zoom_factor};
 
     #[test]
     fn drag_requires_matching_button() {
@@ -741,5 +748,17 @@ mod tests {
             Some(MouseButton::Right)
         ));
         assert!(!is_drag_button_held(DragMode::ZoomRect, None));
+    }
+
+    #[test]
+    fn positive_scroll_delta_zooms_out_after_reversal() {
+        let factor = scroll_zoom_factor(120.0);
+        assert!(factor > 1.0, "expected zoom-out factor, got {factor}");
+    }
+
+    #[test]
+    fn negative_scroll_delta_zooms_in_after_reversal() {
+        let factor = scroll_zoom_factor(-120.0);
+        assert!(factor < 1.0, "expected zoom-in factor, got {factor}");
     }
 }

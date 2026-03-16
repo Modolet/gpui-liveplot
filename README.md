@@ -94,8 +94,8 @@ become visible immediately.
 
 - Left drag in plot area: pan
 - Right drag in plot area: box zoom
-- Mouse wheel in plot area: zoom both axes around cursor
-- Mouse wheel on axis area: zoom single axis
+- Mouse wheel in plot area: zoom both axes around cursor (scroll up zooms out, scroll down zooms in)
+- Mouse wheel on axis area: zoom single axis (same wheel direction semantics)
 - Left click: toggle nearest-point pin
 - Double click in plot area: reset view
 
