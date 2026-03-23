@@ -692,7 +692,7 @@ fn scroll_zoom_factor(delta_y: f32) -> f64 {
         return 1.0;
     }
 
-    (1.0 + (delta_y as f64 * 0.002)).clamp(0.1, 10.0)
+    (1.0 - (delta_y as f64 * 0.002)).clamp(0.1, 10.0)
 }
 
 trait ViewportCenter {
@@ -751,14 +751,14 @@ mod tests {
     }
 
     #[test]
-    fn positive_scroll_delta_zooms_out_after_reversal() {
+    fn positive_scroll_delta_zooms_in_after_reversal() {
         let factor = scroll_zoom_factor(120.0);
-        assert!(factor > 1.0, "expected zoom-out factor, got {factor}");
+        assert!(factor < 1.0, "expected zoom-in factor, got {factor}");
     }
 
     #[test]
-    fn negative_scroll_delta_zooms_in_after_reversal() {
+    fn negative_scroll_delta_zooms_out_after_reversal() {
         let factor = scroll_zoom_factor(-120.0);
-        assert!(factor < 1.0, "expected zoom-in factor, got {factor}");
+        assert!(factor > 1.0, "expected zoom-out factor, got {factor}");
     }
 }
