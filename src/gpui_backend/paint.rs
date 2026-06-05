@@ -1,6 +1,6 @@
 use gpui::{
     App, BorderStyle, Bounds, ContentMask, Corners, Edges, Hsla, PathBuilder, Pixels, Rgba,
-    TextRun, Window, font, point, px, quad,
+    TextAlign, TextRun, Window, font, point, px, quad,
 };
 
 use crate::geom::{ScreenPoint, ScreenRect};
@@ -163,7 +163,7 @@ fn paint_text(
         .shape_line(text.to_string().into(), font_size, &[run], None);
     let line_height = shaped.ascent + shaped.descent;
     let origin = point(px(position.x), px(position.y));
-    let _ = shaped.paint(origin, line_height, window, cx);
+    let _ = shaped.paint(origin, line_height, TextAlign::Left, None, window, cx);
 }
 
 pub(crate) fn to_hsla(color: Rgba) -> Hsla {
@@ -179,7 +179,7 @@ fn to_bounds(rect: ScreenRect) -> Bounds<Pixels> {
 
 fn with_clip(window: &mut Window, stack: &[ContentMask<Pixels>], f: impl FnOnce(&mut Window)) {
     if let Some(mask) = stack.last() {
-        window.with_content_mask(Some(mask.clone()), f);
+        window.with_content_mask(Some(*mask), f);
     } else {
         f(window);
     }

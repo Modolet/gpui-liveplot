@@ -2,9 +2,9 @@ use std::time::Duration;
 
 use gpui::prelude::*;
 use gpui::{
-    AppContext, Application, AsyncWindowContext, Bounds, Timer, WindowBounds, WindowOptions, div,
-    px, size,
+    AppContext, AsyncWindowContext, Bounds, WindowBounds, WindowOptions, div, px, size,
 };
+use gpui_platform::application;
 
 use gpui_liveplot::{
     AxisConfig, LineStyle, MarkerShape, MarkerStyle, Plot, PlotLinkGroup, PlotLinkOptions,
@@ -159,7 +159,9 @@ fn spawn_updates(
             async move {
                 let mut phase = 0.0_f64;
                 loop {
-                    Timer::after(Duration::from_millis(16)).await;
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
                     let _ = stream_a.extend_y((0..120).map(|_| {
                         let y = (phase * 0.9).sin() + 0.2 * (phase * 0.13).cos();
                         phase += 0.02;
@@ -182,7 +184,7 @@ fn spawn_updates(
 }
 
 fn main() {
-    Application::new().run(|cx| {
+    application().run(|cx| {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,
