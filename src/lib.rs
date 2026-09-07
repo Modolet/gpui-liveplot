@@ -43,7 +43,7 @@ pub mod view;
 
 pub mod gpui_backend;
 
-pub use gpui::{Hsla, Rgba};
+pub use gpui_kit::{Hsla, Rgba};
 
 pub use axis::{AxisConfig, AxisConfigBuilder, AxisFormatter, TickConfig};
 pub use datasource::AppendError;

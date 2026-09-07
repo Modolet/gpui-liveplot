@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use gpui::prelude::*;
-use gpui::{
-    AppContext, Application, AsyncWindowContext, Bounds, Timer, WindowBounds, WindowOptions, div,
-    px, size,
+use gpui_kit::prelude::*;
+use gpui_kit::{
+    AppContext, AsyncWindowContext, Bounds, WindowBounds, WindowOptions, div, px, size,
 };
 
 use gpui_liveplot::{
@@ -12,16 +11,16 @@ use gpui_liveplot::{
 };
 
 struct AdvancedDemo {
-    top: gpui::Entity<PlotView>,
-    bottom: gpui::Entity<PlotView>,
+    top: gpui_kit::Entity<PlotView>,
+    bottom: gpui_kit::Entity<PlotView>,
 }
 
-impl gpui::Render for AdvancedDemo {
+impl gpui_kit::Render for AdvancedDemo {
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
-        _cx: &mut gpui::Context<Self>,
-    ) -> impl gpui::IntoElement {
+        _window: &mut gpui_kit::Window,
+        _cx: &mut gpui_kit::Context<Self>,
+    ) -> impl gpui_kit::IntoElement {
         div()
             .size_full()
             .flex()
@@ -32,10 +31,10 @@ impl gpui::Render for AdvancedDemo {
 }
 
 fn build_views(
-    cx: &mut gpui::App,
+    cx: &mut gpui_kit::App,
 ) -> (
-    gpui::Entity<PlotView>,
-    gpui::Entity<PlotView>,
+    gpui_kit::Entity<PlotView>,
+    gpui_kit::Entity<PlotView>,
     Series,
     Series,
 ) {
@@ -146,10 +145,10 @@ fn build_views(
 }
 
 fn spawn_updates(
-    window: &mut gpui::Window,
-    cx: &mut gpui::App,
-    top: gpui::Entity<PlotView>,
-    bottom: gpui::Entity<PlotView>,
+    window: &mut gpui_kit::Window,
+    cx: &mut gpui_kit::App,
+    top: gpui_kit::Entity<PlotView>,
+    bottom: gpui_kit::Entity<PlotView>,
     mut stream_a: Series,
     mut stream_b: Series,
 ) {
@@ -159,7 +158,9 @@ fn spawn_updates(
             async move {
                 let mut phase = 0.0_f64;
                 loop {
-                    Timer::after(Duration::from_millis(16)).await;
+                    cx.background_executor()
+                        .timer(Duration::from_millis(16))
+                        .await;
                     let _ = stream_a.extend_y((0..120).map(|_| {
                         let y = (phase * 0.9).sin() + 0.2 * (phase * 0.13).cos();
                         phase += 0.02;
@@ -182,7 +183,7 @@ fn spawn_updates(
 }
 
 fn main() {
-    Application::new().run(|cx| {
+    gpui_kit::application().run(|cx| {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,

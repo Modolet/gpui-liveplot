@@ -1,4 +1,4 @@
-use gpui::{TextRun, Window, font, px};
+use gpui_kit::{TextRun, Window, font, px};
 
 use crate::axis::TextMeasurer;
 
@@ -31,7 +31,7 @@ impl TextMeasurer for GpuiTextMeasurer<'_> {
         let run = TextRun {
             len: text.len(),
             font: font(".SystemUIFont"),
-            color: gpui::black(),
+            color: gpui_kit::black(),
             background_color: None,
             underline: None,
             strikethrough: None,

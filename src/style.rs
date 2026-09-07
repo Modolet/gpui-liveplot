@@ -2,7 +2,7 @@
 //!
 //! Themes describe plot-level colors (background, grid, axes, overlays).
 
-use gpui::Rgba;
+use gpui_kit::Rgba;
 
 /// Visual theme for plot-level elements such as axes, grid, and overlays.
 ///
@@ -201,7 +201,7 @@ impl Theme {
     ///
     /// This is only available when the `gpui_component_theme` feature is enabled.
     #[cfg(feature = "gpui_component_theme")]
-    pub fn from_gpui_component_theme(theme: &gpui_component::Theme) -> Self {
+    pub fn from_gpui_component_theme(theme: &gpui_kit::component::Theme) -> Self {
         Self {
             background: theme.background.into(),
             axis: theme.foreground.into(),

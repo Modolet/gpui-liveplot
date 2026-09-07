@@ -1,4 +1,4 @@
-use gpui::Rgba;
+use gpui_kit::Rgba;
 
 pub(crate) const AXIS_PADDING: f32 = 6.0;
 pub(crate) const TICK_LENGTH_MAJOR: f32 = 6.0;

@@ -21,14 +21,16 @@ Add this crate to your project:
 
 ```toml
 [dependencies]
-gpui-liveplot = "0.2"
+gpui-kit = "0.6.0"
+gpui-liveplot = "0.3.0"
 ```
 
 If your app uses `gpui-component`, enable theme integration:
 
 ```toml
 [dependencies]
-gpui-liveplot = { version = "0.2", features = ["gpui_component_theme"] }
+gpui-kit = "0.6.0"
+gpui-liveplot = { version = "0.3.0", features = ["gpui_component_theme"] }
 ```
 
 In Rust code, import it as `gpui_liveplot`:
@@ -40,10 +42,10 @@ use gpui_liveplot::{Plot, Series, SeriesKind};
 ## Quick Start
 
 ```rust
-use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui_kit::{AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 use gpui_liveplot::{AxisConfig, Plot, PlotView, Series, SeriesKind, Theme};
 
-Application::new().run(|cx| {
+gpui_kit::application().run(|cx| {
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
             None,

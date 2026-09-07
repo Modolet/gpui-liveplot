@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use gpui::{Bounds, Pixels, Rgba, Window};
+use gpui_kit::{Bounds, Pixels, Rgba, Window};
 
 use crate::axis::{AxisConfig, AxisLayout, TextMeasurer};
 use crate::geom::{Point as DataPoint, ScreenPoint, ScreenRect};

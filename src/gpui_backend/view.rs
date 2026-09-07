@@ -1,8 +1,8 @@
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use gpui::prelude::*;
-use gpui::{
+use gpui_kit::prelude::*;
+use gpui_kit::{
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent,
     StatefulInteractiveElement, Window, canvas, div, px,
 };
@@ -535,10 +535,10 @@ impl Render for PlotView {
 }
 
 #[cfg(feature = "gpui_component_theme")]
-fn resolve_gpui_component_theme(cx: &gpui::App) -> Option<crate::style::Theme> {
-    if cx.has_global::<gpui_component::Theme>() {
+fn resolve_gpui_component_theme(cx: &gpui_kit::App) -> Option<crate::style::Theme> {
+    if cx.has_global::<gpui_kit::component::Theme>() {
         Some(crate::style::Theme::from_gpui_component_theme(
-            gpui_component::Theme::global(cx),
+            gpui_kit::component::Theme::global(cx),
         ))
     } else {
         None
@@ -546,7 +546,7 @@ fn resolve_gpui_component_theme(cx: &gpui::App) -> Option<crate::style::Theme> {
 }
 
 #[cfg(feature = "gpui_component_theme")]
-fn resolve_theme(base: crate::style::Theme, cx: &gpui::App) -> crate::style::Theme {
+fn resolve_theme(base: crate::style::Theme, cx: &gpui_kit::App) -> crate::style::Theme {
     resolve_gpui_component_theme(cx).unwrap_or(base)
 }
 

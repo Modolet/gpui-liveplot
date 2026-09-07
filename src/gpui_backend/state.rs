@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
-use gpui::MouseButton;
+use gpui_kit::MouseButton;
 
 use crate::axis::AxisLayoutCache;
 use crate::datasource::DecimationScratch;

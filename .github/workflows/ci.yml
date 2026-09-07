@@ -1,59 +1,34 @@
+# @file ci.yml
+# @brief Cross-platform GPUI Kit validation
+# @author modolet <y@xxyx.io>
+# @date 2026-09-07
 name: CI
-
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master, codex/gpui-kit]
   pull_request:
   workflow_dispatch:
-
 jobs:
   rust:
-    runs-on: ubuntu-latest
-
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        features: ["", "--features gpui_component_theme"]
+    runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install system dependencies
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libasound2-dev \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libssl-dev \
-            libwayland-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+          sudo apt-get install -y pkg-config libasound2-dev libfontconfig1-dev libfreetype6-dev libssl-dev libwayland-dev libx11-dev libx11-xcb-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libxkbcommon-x11-dev libegl1-mesa-dev
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Check build
-        run: RUSTC_WRAPPER= cargo check --all-targets
-
-      - name: Run clippy
-        run: RUSTC_WRAPPER= cargo clippy --all-targets -- -D warnings
-
-      - name: Run tests
-        run: RUSTC_WRAPPER= cargo test --all-targets
-
-      - name: Check examples
-        run: RUSTC_WRAPPER= cargo check --examples
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo check --all-targets ${{ matrix.features }}
+      - run: cargo clippy --all-targets ${{ matrix.features }} -- -D warnings
+      - run: cargo test --all-targets ${{ matrix.features }}
+      - run: cargo check --examples ${{ matrix.features }}

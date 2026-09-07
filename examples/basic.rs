@@ -1,11 +1,11 @@
-use gpui::{AppContext, Application, Bounds, WindowBounds, WindowOptions, px, size};
+use gpui_kit::{AppContext, Bounds, WindowBounds, WindowOptions, px, size};
 
 use gpui_liveplot::{
     AxisConfig, LineStyle, Plot, PlotView, PlotViewConfig, Rgba, Series, SeriesKind, Theme,
 };
 
 fn main() {
-    Application::new().run(|cx| {
+    gpui_kit::application().run(|cx| {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
                 None,

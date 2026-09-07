@@ -1,8 +1,8 @@
 [package]
 name = "gpui-liveplot"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 description = "High-performance append-only plotting for GPUI applications."
 license = "MIT"
 repository = "https://github.com/Modolet/gpui-liveplot"
@@ -17,8 +17,9 @@ path = "src/lib.rs"
 
 [features]
 default = []
-gpui_component_theme = ["dep:gpui-component"]
+gpui_component_theme = ["gpui-kit/component"]
 
 [dependencies]
-gpui = { version = "0.2.2" }
-gpui-component = { version = "0.5.1", optional = true, default-features = false }
+gpui-kit = { version = "0.6.0", default-features = false }
+
+[workspace]
