@@ -118,6 +118,16 @@ See `examples/advanced.rs` for a complete linked-streaming demo.
 - Multi-level summaries speed up zoomed-out views.
 - Render caching is keyed by viewport, size, and data generation.
 
+Run `cargo bench --bench decimation` to measure uncached viewport queries on
+one million and ten million samples. It reports median query time, summary-build
+time, and output point counts for overview, zoom, and detail views. Set
+`LIVEPLOT_BENCH_DUMP` to a directory to also export the decimated points as CSV.
+
+Summary selection retains approximately two to four points per plot pixel, with
+exact extrema queries at viewport boundaries and incomplete streaming tails.
+Line strokes use independent quads and bounded bevel joins so short segments and
+sharp reversals remain covered without extending data peaks with long miters.
+
 ## Limitations
 
 - Append-only workflows are the primary optimization target.
@@ -126,8 +136,8 @@ See `examples/advanced.rs` for a complete linked-streaming demo.
 ## Development
 
 ```bash
-RUSTC_WRAPPER= cargo check
-RUSTC_WRAPPER= cargo clippy --all-targets
+cargo check
+cargo clippy --all-targets
 cargo test
 ```
 

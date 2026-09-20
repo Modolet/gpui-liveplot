@@ -1,6 +1,6 @@
 [package]
 name = "gpui-liveplot"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.92"
 description = "High-performance append-only plotting for GPUI applications."
@@ -14,6 +14,10 @@ categories = ["gui", "visualization"]
 
 [lib]
 path = "src/lib.rs"
+
+[[bench]]
+name = "decimation"
+harness = false
 
 [features]
 default = []

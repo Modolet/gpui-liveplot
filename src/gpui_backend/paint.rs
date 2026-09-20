@@ -1,5 +1,5 @@
 use gpui_kit::{
-    App, BorderStyle, Bounds, ContentMask, Corners, Edges, Hsla, PathBuilder, Pixels, Rgba,
+    App, BorderStyle, Bounds, ContentMask, Corners, Edges, Hsla, Path, PathBuilder, Pixels, Rgba,
     TextAlign, TextRun, Window, font, point, px, quad,
 };
 
@@ -54,16 +54,65 @@ fn paint_lines(window: &mut Window, segments: &[LineSegment], style: LineStyle) 
     if segments.is_empty() {
         return;
     }
-    let width = style.width.max(0.5);
-    let mut builder = PathBuilder::stroke(px(width));
-    for segment in segments {
-        builder.move_to(point(px(segment.start.x), px(segment.start.y)));
-        builder.line_to(point(px(segment.end.x), px(segment.end.y)));
-    }
-    if let Ok(path) = builder.build() {
-        window.paint_path(path, style.color);
-    }
+    window.paint_path(build_line_path(segments, style.width), style.color);
 }
+
+fn build_line_path(segments: &[LineSegment], width: f32) -> Path<Pixels> {
+    let radius = width.max(0.5) * 0.5;
+    let origin = segments.first().map_or(point(px(0.), px(0.)), |segment| {
+        point(px(segment.start.x), px(segment.start.y))
+    });
+    let mut path = Path::new(origin);
+    path.vertices.reserve(segments.len().saturating_mul(9));
+    let vertex = |p: ScreenPoint| point(px(p.x), px(p.y));
+    let offset = |p: ScreenPoint, normal: ScreenPoint, side: f32| {
+        ScreenPoint::new(p.x + normal.x * side, p.y + normal.y * side)
+    };
+    let uv = (point(0., 1.), point(0., 1.), point(0., 1.));
+    let mut previous: Option<(ScreenPoint, ScreenPoint)> = None;
+    for segment in segments {
+        let dx = segment.end.x - segment.start.x;
+        let dy = segment.end.y - segment.start.y;
+        let length = dx.hypot(dy);
+        if length == 0. || !length.is_finite() {
+            continue;
+        }
+        let normal = ScreenPoint::new(-dy * radius / length, dx * radius / length);
+        let a = vertex(offset(segment.start, normal, 1.));
+        let b = vertex(offset(segment.start, normal, -1.));
+        let c = vertex(offset(segment.end, normal, 1.));
+        let d = vertex(offset(segment.end, normal, -1.));
+        // Independent quads retain every segment even at subpixel lengths and
+        // near-180-degree folds. Generic stroke tessellation may merge or fold
+        // these segments, opening cracks in dense oscillations.
+        path.push_triangle((a, b, c), uv);
+        path.push_triangle((b, d, c), uv);
+        if let Some((end, previous_normal)) = previous
+            && end == segment.start
+        {
+            let turn = previous_normal.x * normal.y - previous_normal.y * normal.x;
+            if turn != 0. {
+                let side = if turn > 0. { -1. } else { 1. };
+                // A bevel fills only the outside join wedge; it cannot extend
+                // a sharp data peak beyond half the configured stroke width.
+                path.push_triangle(
+                    (
+                        vertex(segment.start),
+                        vertex(offset(segment.start, previous_normal, side)),
+                        vertex(offset(segment.start, normal, side)),
+                    ),
+                    uv,
+                );
+            }
+        }
+        previous = Some((segment.end, normal));
+    }
+    path
+}
+
+#[cfg(test)]
+#[path = "tests/paint.rs"]
+mod tests;
 
 fn paint_points(window: &mut Window, points: &[ScreenPoint], style: MarkerStyle) {
     if points.is_empty() {

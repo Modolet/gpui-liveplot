@@ -106,7 +106,7 @@ impl SeriesStore {
             return scratch.output();
         }
         let index_range = self.data.range_by_x(x_range);
-        let points = &self.data.points()[index_range];
+        let points = &self.data.points()[index_range.clone()];
         if points.is_empty() {
             return scratch.output();
         }
@@ -123,17 +123,30 @@ impl SeriesStore {
             return decimate_minmax(points, x_range, pixel_width, scratch);
         }
         if let Some(level) = self.summary.choose_level(target_bucket) {
-            for bucket in level.buckets() {
-                if bucket.x_range.max < x_range.min || bucket.x_range.min > x_range.max {
-                    continue;
-                }
-                bucket.push_ordered(scratch.output_mut());
-            }
-            if let Some(partial) = self.summary.partial_bucket()
-                && partial.x_range.max >= x_range.min
-                && partial.x_range.min <= x_range.max
+            // Visit only complete visible buckets. Boundary and streaming-tail
+            // ranges use finer summaries, so out-of-view peaks cannot replace
+            // visible extrema and unpaired lower-level buckets are never lost.
+            let chunk = level.chunk_size();
+            let first = index_range.start.div_ceil(chunk);
+            let last = index_range.end / chunk;
+            let prefix_end = (first * chunk).min(index_range.end);
+            if let Some(extrema) = self
+                .summary
+                .extrema(self.data.points(), index_range.start..prefix_end)
             {
-                partial.push_ordered(scratch.output_mut());
+                extrema.push_ordered(scratch.output_mut());
+            }
+            if first < last {
+                for bucket in &level.buckets()[first..last] {
+                    bucket.push_ordered(scratch.output_mut());
+                }
+            }
+            let suffix_start = (last * chunk).max(prefix_end);
+            if let Some(extrema) = self
+                .summary
+                .extrema(self.data.points(), suffix_start..index_range.end)
+            {
+                extrema.push_ordered(scratch.output_mut());
             }
             return scratch.output();
         }
@@ -156,27 +169,5 @@ impl SeriesStore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn extend_y_updates_generation_for_each_new_point() {
-        let mut store = SeriesStore::indexed();
-        let added = store.extend_y([1.0, 2.0, 3.0]).unwrap();
-        assert_eq!(added, 3);
-        assert_eq!(store.generation(), 3);
-    }
-
-    #[test]
-    fn extend_points_non_monotonic_still_updates_generation() {
-        let mut store = SeriesStore::with_base_chunk(AppendOnlyData::explicit(), 4);
-        let result = store.extend_points([
-            Point::new(1.0, 1.0),
-            Point::new(2.0, 2.0),
-            Point::new(1.5, 3.0),
-        ]);
-        assert_eq!(result, Err(AppendError::NonMonotonicX));
-        assert_eq!(store.data().len(), 3);
-        assert_eq!(store.generation(), 3);
-    }
-}
+#[path = "tests/store.rs"]
+mod tests;

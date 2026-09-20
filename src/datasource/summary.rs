@@ -18,6 +18,24 @@ pub struct MinMax {
 }
 
 impl MinMax {
+    fn from_point(point: Point) -> Self {
+        Self {
+            min: point,
+            max: point,
+            x_range: Range::new(point.x, point.x),
+        }
+    }
+
+    fn push(&mut self, point: Point) {
+        if point.y < self.min.y {
+            self.min = point;
+        }
+        if point.y > self.max.y {
+            self.max = point;
+        }
+        self.x_range.max = point.x;
+    }
+
     fn from_partial(partial: &PartialBucket) -> Self {
         Self {
             min: partial.min,
@@ -122,6 +140,10 @@ impl SummaryLevel {
         }
     }
 
+    pub(crate) fn chunk_size(&self) -> usize {
+        self.chunk_size
+    }
+
     pub(crate) fn buckets(&self) -> &[MinMax] {
         &self.buckets
     }
@@ -166,29 +188,56 @@ impl SummaryLevels {
             }
             Some(partial) => {
                 partial.push(point);
-                if partial.count >= self.base_chunk {
-                    let bucket = MinMax::from_partial(partial);
-                    self.partial = None;
-                    self.push_bucket(0, bucket);
-                }
             }
+        }
+        if let Some(partial) = &self.partial
+            && partial.count >= self.base_chunk
+        {
+            let bucket = MinMax::from_partial(partial);
+            self.partial = None;
+            self.push_bucket(0, bucket);
         }
     }
 
-    /// Return a partial bucket summary when the base chunk is not full.
-    pub fn partial_bucket(&self) -> Option<MinMax> {
-        self.partial.as_ref().map(MinMax::from_partial)
+    /// Never choose a bucket coarser than the requested screen resolution.
+    pub(crate) fn choose_level(&self, target_chunk: usize) -> Option<&SummaryLevel> {
+        self.levels
+            .iter()
+            .rev()
+            .find(|level| level.chunk_size <= target_chunk)
     }
 
-    /// Choose a summary level for the desired bucket size.
-    pub fn choose_level(&self, target_chunk: usize) -> Option<&SummaryLevel> {
-        let target_chunk = target_chunk.max(1);
-        for level in &self.levels {
-            if level.chunk_size >= target_chunk {
-                return Some(level);
+    /// Query exact extrema without scanning complete summarized chunks.
+    /// Only the two base-chunk boundaries are read from raw data. Aligned
+    /// interior chunks are covered by the largest available summary nodes,
+    /// including complete lower-level buckets in an unpaired streaming tail.
+    pub(crate) fn extrema(
+        &self,
+        points: &[Point],
+        range: std::ops::Range<usize>,
+    ) -> Option<MinMax> {
+        if range.is_empty() {
+            return None;
+        }
+        let mut result = MinMax::from_point(points[range.start]);
+        let mut index = range.start;
+        while index < range.end {
+            let remaining = range.end - index;
+            if index.is_multiple_of(self.base_chunk)
+                && remaining >= self.base_chunk
+                && !self.levels.is_empty()
+            {
+                let aligned = (index / self.base_chunk).trailing_zeros() as usize;
+                let fitting = (remaining / self.base_chunk).ilog2() as usize;
+                let level = &self.levels[aligned.min(fitting).min(self.levels.len() - 1)];
+                result = MinMax::merge(result, level.buckets[index / level.chunk_size]);
+                index += level.chunk_size;
+            } else {
+                result.push(points[index]);
+                index += 1;
             }
         }
-        self.levels.last()
+        Some(result)
     }
 
     fn push_bucket(&mut self, level_index: usize, bucket: MinMax) {
@@ -341,35 +390,5 @@ pub fn decimate_minmax<'a>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn decimate_preserves_extremes() {
-        let points = [
-            Point::new(0.0, 1.0),
-            Point::new(1.0, 5.0),
-            Point::new(2.0, 0.5),
-            Point::new(3.0, 3.0),
-        ];
-        let mut scratch = DecimationScratch::new();
-        let out = decimate_minmax(&points, Range::new(0.0, 3.0), 1, &mut scratch);
-        assert_eq!(out.len(), 2);
-        let ys = [out[0].y, out[1].y];
-        assert!(ys.contains(&0.5));
-        assert!(ys.contains(&5.0));
-    }
-
-    #[test]
-    fn summary_levels_grow() {
-        let mut summary = SummaryLevels::new(2);
-        summary.push(Point::new(0.0, 1.0));
-        summary.push(Point::new(1.0, 2.0));
-        summary.push(Point::new(2.0, 3.0));
-        summary.push(Point::new(3.0, 4.0));
-        assert!(!summary.levels.is_empty());
-        let level = &summary.levels[0];
-        assert_eq!(level.chunk_size, 2);
-        assert_eq!(level.buckets.len(), 2);
-    }
-}
+#[path = "tests/summary.rs"]
+mod tests;
