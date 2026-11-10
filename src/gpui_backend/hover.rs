@@ -128,9 +128,12 @@ fn find_nearest_unpinned_point(
                 let Some(point) = data.point(index) else {
                     continue;
                 };
+                let Some(point_index) = store.pin_index(index) else {
+                    continue;
+                };
                 let pin = crate::interaction::Pin {
                     series_id: series.id(),
-                    point_index: index,
+                    point_index,
                 };
                 if pins.contains(&pin) {
                     continue;
@@ -175,6 +178,58 @@ fn pin_screen_point(
     if !series.is_visible() {
         return None;
     }
-    let point = series.with_store(|store| store.data().point(pin.point_index))?;
+    let point = series.with_store(|store| store.pinned_point(pin.point_index))?;
     transform.data_to_screen(point)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        geom::Point,
+        series::{Series, SeriesKind},
+        view::Viewport,
+    };
+
+    #[test]
+    fn hover_and_pin_keep_absolute_positions_when_window_slides() {
+        let mut series = Series::from_sample_window(
+            "window",
+            vec![10., 20., 30.].into(),
+            100,
+            1.,
+            SeriesKind::Line(Default::default()),
+        )
+        .unwrap();
+        let mut plot = Plot::new();
+        plot.add_series(&series);
+        let rect = ScreenRect::new(ScreenPoint::new(0., 0.), ScreenPoint::new(300., 300.));
+        let transform = Transform::new(
+            Viewport::new(Range::new(100., 103.), Range::new(0., 40.)),
+            rect,
+        )
+        .unwrap();
+        let cursor = transform.data_to_screen(Point::new(101., 20.)).unwrap();
+        let target = compute_hover_target(&plot, &transform, cursor, Some(rect), 5., 10.).unwrap();
+        assert_eq!(target.pin.point_index, 101);
+        assert!(!target.is_pinned);
+        plot.pins_mut().push(target.pin);
+        series
+            .update_sample_window(vec![20., 30., 40.].into(), 101, 1.)
+            .unwrap();
+        let retained =
+            compute_hover_target(&plot, &transform, cursor, Some(rect), 5., 10.).unwrap();
+        assert_eq!(retained.pin, target.pin);
+        assert!(retained.is_pinned);
+        assert_eq!(retained.screen, cursor);
+        assert_eq!(
+            pin_screen_point(&plot, target.pin, &transform),
+            Some(cursor)
+        );
+        series
+            .update_sample_window(vec![30., 40.].into(), 102, 1.)
+            .unwrap();
+        assert!(pin_screen_point(&plot, target.pin, &transform).is_none());
+        assert!(compute_hover_target(&plot, &transform, cursor, Some(rect), 5., 10.).is_none());
+    }
 }

@@ -187,7 +187,13 @@ impl Plot {
             if !series.is_visible() {
                 continue;
             }
-            let last_point = series.with_store(|store| store.data().points().last().copied());
+            let last_point = series.with_store(|store| {
+                store
+                    .data()
+                    .len()
+                    .checked_sub(1)
+                    .and_then(|index| store.data().point(index))
+            });
             if let Some(point) = last_point
                 && max_point.is_none_or(|max| point.x > max.x)
             {

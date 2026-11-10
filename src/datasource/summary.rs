@@ -211,15 +211,24 @@ impl SummaryLevels {
     /// Only the two base-chunk boundaries are read from raw data. Aligned
     /// interior chunks are covered by the largest available summary nodes,
     /// including complete lower-level buckets in an unpaired streaming tail.
+    #[cfg(test)]
     pub(crate) fn extrema(
         &self,
         points: &[Point],
         range: std::ops::Range<usize>,
     ) -> Option<MinMax> {
+        self.extrema_by(|index| points[index], range)
+    }
+
+    pub(crate) fn extrema_by(
+        &self,
+        point: impl Fn(usize) -> Point,
+        range: std::ops::Range<usize>,
+    ) -> Option<MinMax> {
         if range.is_empty() {
             return None;
         }
-        let mut result = MinMax::from_point(points[range.start]);
+        let mut result = MinMax::from_point(point(range.start));
         let mut index = range.start;
         while index < range.end {
             let remaining = range.end - index;
@@ -233,7 +242,7 @@ impl SummaryLevels {
                 result = MinMax::merge(result, level.buckets[index / level.chunk_size]);
                 index += level.chunk_size;
             } else {
-                result.push(points[index]);
+                result.push(point(index));
                 index += 1;
             }
         }
@@ -343,19 +352,29 @@ impl Bucket {
 ///
 /// The output preserves extrema and is suitable for rendering dense lines at
 /// interactive frame rates.
+#[cfg(test)]
 pub fn decimate_minmax<'a>(
     points: &[Point],
     x_range: Range,
     pixel_width: usize,
     scratch: &'a mut DecimationScratch,
 ) -> &'a [Point] {
+    decimate_minmax_iter(points.iter().copied(), x_range, pixel_width, scratch)
+}
+
+pub(crate) fn decimate_minmax_iter(
+    points: impl ExactSizeIterator<Item = Point>,
+    x_range: Range,
+    pixel_width: usize,
+    scratch: &mut DecimationScratch,
+) -> &[Point] {
     scratch.points.clear();
-    if points.is_empty() || pixel_width == 0 {
+    if points.len() == 0 || pixel_width == 0 {
         return scratch.output();
     }
     let span = x_range.span();
     if span <= 0.0 {
-        scratch.points.extend_from_slice(points);
+        scratch.points.extend(points);
         return scratch.output();
     }
 
@@ -379,7 +398,7 @@ pub fn decimate_minmax<'a>(
         if index >= pixel_width {
             index = pixel_width - 1;
         }
-        scratch.buckets[index].push(*point);
+        scratch.buckets[index].push(point);
     }
 
     for bucket in scratch.buckets.iter().take(pixel_width) {

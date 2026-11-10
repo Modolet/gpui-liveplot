@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use gpui_kit::prelude::*;
 use gpui_kit::{
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollWheelEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, ScrollEvent,
     StatefulInteractiveElement, Window, canvas, div, px,
 };
 
@@ -407,7 +407,7 @@ impl PlotView {
         cx.notify();
     }
 
-    fn on_scroll(&mut self, ev: &ScrollWheelEvent, _window: &Window, cx: &mut Context<Self>) {
+    fn on_scroll(&mut self, ev: &ScrollEvent, _window: &Window, cx: &mut Context<Self>) {
         let pos = screen_point(ev.position);
         let mut state = self.state.write().expect("plot state lock");
         if state.legend_hit(pos).is_some() {
@@ -528,7 +528,7 @@ impl Render for PlotView {
                     this.on_mouse_up_out(ev, cx);
                 }),
             )
-            .on_scroll_wheel(cx.listener(|this, ev, window, cx| {
+            .on_scroll(cx.listener(|this, ev, window, cx| {
                 this.on_scroll(ev, window, cx);
             }))
     }

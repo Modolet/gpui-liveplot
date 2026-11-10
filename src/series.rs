@@ -115,6 +115,76 @@ impl Series {
         Self::with_data(name, data, kind)
     }
 
+    /// Reference immutable, uniformly sampled values without a point-array copy.
+    ///
+    /// The range selects samples from the original buffer; X remains index / rate.
+    /// Appending to this series returns [`AppendError::WrongMode`].
+    /// Summary and render buffers are still allocated for each series.
+    ///
+    /// # Errors
+    ///
+    /// Rejects out-of-bounds ranges, non-finite samples, non-positive or non-finite
+    /// sample rates, and sample positions or times that overflow.
+    pub fn from_shared_samples(
+        name: impl Into<String>,
+        samples: Arc<[f32]>,
+        range: std::ops::Range<usize>,
+        sample_rate: f64,
+        kind: SeriesKind,
+    ) -> Result<Self, &'static str> {
+        let data = AppendOnlyData::shared_samples(samples, range, sample_rate)?;
+        Ok(Self::with_data(name, data, kind))
+    }
+
+    /// Reference a bounded sample window while retaining its absolute X positions.
+    ///
+    /// `first_sample` is the sample index of the buffer's first value.
+    /// X is `(first_sample + index) / sample_rate`; use rate 1 for sample indices.
+    /// Pins use absolute sample indices instead of positions inside the window.
+    /// Coordinates use `f64`, so very large indices can map to the same X value.
+    /// Pin indices must fit in `usize` on the target platform.
+    ///
+    /// # Errors
+    ///
+    /// Rejects the same invalid samples, rates, and overflowing positions or times
+    /// as [`Series::from_shared_samples`].
+    pub fn from_sample_window(
+        name: impl Into<String>,
+        samples: Arc<[f32]>,
+        first_sample: u64,
+        sample_rate: f64,
+        kind: SeriesKind,
+    ) -> Result<Self, &'static str> {
+        let range = 0..samples.len();
+        let data = AppendOnlyData::shared_samples_at(samples, range, sample_rate, first_sample)?;
+        let series = Self::with_data(name, data, kind);
+        series.with_store_mut(|store| store.mark_window(first_sample));
+        Ok(series)
+    }
+
+    /// Replace a window from the same acquisition, preserving shared handles and pins.
+    ///
+    /// Retained sample indices must continue to identify the same measurements.
+    /// Create a new series when starting a new acquisition. Summary rebuilding is
+    /// linear in the replacement window length; old sample storage is released
+    /// unless another snapshot still owns it. Evicted pins no longer resolve.
+    ///
+    /// # Errors
+    ///
+    /// Rejects non-window series, a decreasing `first_sample`, and invalid sample
+    /// buffers, rates, or positions. Failure leaves data, summaries, and generation
+    /// unchanged.
+    pub fn update_sample_window(
+        &mut self,
+        samples: Arc<[f32]>,
+        first_sample: u64,
+        sample_rate: f64,
+    ) -> Result<(), &'static str> {
+        let range = 0..samples.len();
+        let data = AppendOnlyData::shared_samples_at(samples, range, sample_rate, first_sample)?;
+        self.with_store_mut(|store| store.replace_window(data, first_sample))
+    }
+
     /// Build a series by sampling a callback function.
     ///
     /// The callback is sampled uniformly across `x_range`.
@@ -154,7 +224,7 @@ impl Series {
     ///
     /// The returned series receives a new [`SeriesId`], so it can coexist with
     /// the source series in the same plot. Data appends through either series
-    /// are immediately visible to all shared handles.
+    /// and sample-window replacements are immediately visible to all shared handles.
     pub fn share(&self) -> Self {
         Self {
             id: SeriesId::next(),
@@ -274,5 +344,67 @@ mod tests {
         let _ = cloned.push_y(2.0);
         assert_eq!(source.generation(), 1);
         assert_eq!(cloned.generation(), 1);
+    }
+    #[test]
+    fn update_preserves_shared_identity_and_absolute_pins() {
+        let mut source = Series::from_sample_window(
+            "w",
+            vec![10., 20., 30.].into(),
+            100,
+            1.,
+            SeriesKind::Line(LineStyle::default()),
+        )
+        .unwrap();
+        let shared = source.share();
+        let clone = source.clone();
+        let id = source.id();
+        let generation = source.generation();
+        let pin = source.with_store(|s| s.pin_index(1)).unwrap();
+        assert_eq!(pin, 101);
+        source
+            .update_sample_window(vec![20., 30., 40.].into(), 101, 1.)
+            .unwrap();
+        assert_eq!(source.id(), id);
+        assert!(source.generation() > generation);
+        assert_eq!(shared.generation(), source.generation());
+        assert_eq!(shared.bounds(), source.bounds());
+        assert_eq!(
+            shared.with_store(|s| s.pinned_point(pin)),
+            Some(Point::new(101., 20.))
+        );
+        assert_eq!(shared.with_store(|s| s.pinned_point(100)), None);
+        assert_eq!(
+            clone.with_store(|s| s.pinned_point(100)),
+            Some(Point::new(100., 10.))
+        );
+        let bounds = source.bounds();
+        let generation = source.generation();
+        assert!(source.update_sample_window(vec![9.].into(), 0, 1.).is_err());
+        assert!(
+            source
+                .update_sample_window(vec![f32::NAN].into(), 102, 1.)
+                .is_err()
+        );
+        assert_eq!(source.bounds(), bounds);
+        assert_eq!(source.generation(), generation);
+        source
+            .update_sample_window(Vec::<f32>::new().into(), 104, 1.)
+            .unwrap();
+        assert!(shared.bounds().is_none());
+        assert_eq!(shared.with_store(|s| s.pinned_point(pin)), None);
+    }
+    #[test]
+    fn ordinary_series_keep_local_pin_indices_and_reject_window_updates() {
+        let mut source = Series::from_iter_y("x", [1., 2.], SeriesKind::Line(LineStyle::default()));
+        assert_eq!(source.with_store(|s| s.pin_index(1)), Some(1));
+        assert_eq!(
+            source.with_store(|s| s.pinned_point(1)),
+            Some(Point::new(1., 2.))
+        );
+        assert!(source.update_sample_window(vec![3.].into(), 0, 1.).is_err());
+        assert_eq!(
+            source.with_store(|s| s.pinned_point(1)),
+            Some(Point::new(1., 2.))
+        );
     }
 }

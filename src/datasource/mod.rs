@@ -39,16 +39,104 @@ pub enum AppendError {
 #[derive(Debug, Clone)]
 pub(crate) struct AppendOnlyData {
     points: Vec<Point>,
+    shared: Option<SharedSamples>,
     x_mode: XMode,
     monotonic: bool,
     bounds: Option<Viewport>,
 }
 
+#[derive(Debug, Clone)]
+struct SharedSamples {
+    values: std::sync::Arc<[f32]>,
+    range: std::ops::Range<usize>,
+    sample_rate: f64,
+    first_sample: u64,
+}
+
+impl SharedSamples {
+    fn point(&self, index: usize) -> Option<Point> {
+        if index >= self.range.len() {
+            return None;
+        }
+        let index = self.range.start + index;
+        Some(Point::new(
+            (self.first_sample + index as u64) as f64 / self.sample_rate,
+            self.values[index] as f64,
+        ))
+    }
+
+    fn bound(&self, x: f64, inclusive: bool) -> usize {
+        let (mut low, mut high) = (0, self.range.len());
+        while low < high {
+            let middle = low + (high - low) / 2;
+            let point_x =
+                (self.first_sample + (self.range.start + middle) as u64) as f64 / self.sample_rate;
+            if point_x < x || (inclusive && point_x == x) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        low
+    }
+}
+
 impl AppendOnlyData {
+    pub(crate) fn shared_samples(
+        values: std::sync::Arc<[f32]>,
+        range: std::ops::Range<usize>,
+        sample_rate: f64,
+    ) -> Result<Self, &'static str> {
+        Self::shared_samples_at(values, range, sample_rate, 0)
+    }
+
+    pub(crate) fn shared_samples_at(
+        values: std::sync::Arc<[f32]>,
+        range: std::ops::Range<usize>,
+        sample_rate: f64,
+        first_sample: u64,
+    ) -> Result<Self, &'static str> {
+        if range.start > range.end || range.end > values.len() {
+            return Err("sample range is out of bounds");
+        }
+        if !sample_rate.is_finite() || sample_rate <= 0. {
+            return Err("sample rate must be finite and positive");
+        }
+        if values[range.clone()].iter().any(|value| !value.is_finite()) {
+            return Err("samples must be finite");
+        }
+        if !range.is_empty() {
+            let last = first_sample
+                .checked_add((range.end - 1) as u64)
+                .ok_or("sample position overflow")?;
+            if !((last as f64) / sample_rate).is_finite() {
+                return Err("sample time must be finite");
+            }
+        }
+        let mut data = Self::explicit();
+        data.shared = Some(SharedSamples {
+            values,
+            range,
+            sample_rate,
+            first_sample,
+        });
+        for index in 0..data.len() {
+            data.update_bounds(data.point(index).expect("validated sample index"));
+        }
+        Ok(data)
+    }
+
+    pub(crate) fn iter_points(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> impl ExactSizeIterator<Item = Point> + Clone + '_ {
+        range.map(|index| self.point(index).expect("validated point range"))
+    }
     /// Create an empty data set with implicit X indices.
     pub fn indexed() -> Self {
         Self {
             points: Vec::new(),
+            shared: None,
             x_mode: XMode::Index,
             monotonic: true,
             bounds: None,
@@ -59,6 +147,7 @@ impl AppendOnlyData {
     pub fn explicit() -> Self {
         Self {
             points: Vec::new(),
+            shared: None,
             x_mode: XMode::Explicit,
             monotonic: true,
             bounds: None,
@@ -122,7 +211,7 @@ impl AppendOnlyData {
         I: IntoIterator<Item = T>,
         T: Into<f64>,
     {
-        if self.x_mode != XMode::Index {
+        if self.shared.is_some() || self.x_mode != XMode::Index {
             return Err(AppendError::WrongMode);
         }
 
@@ -151,7 +240,7 @@ impl AppendOnlyData {
     where
         I: IntoIterator<Item = Point>,
     {
-        if self.x_mode != XMode::Explicit {
+        if self.shared.is_some() || self.x_mode != XMode::Explicit {
             return Err(AppendError::WrongMode);
         }
 
@@ -182,23 +271,29 @@ impl AppendOnlyData {
     }
 
     /// Access all points as a slice.
+    #[cfg(test)]
     pub fn points(&self) -> &[Point] {
         &self.points
     }
 
     /// Access a single point by index.
     pub fn point(&self, index: usize) -> Option<Point> {
-        self.points.get(index).copied()
+        match &self.shared {
+            Some(shared) => shared.point(index),
+            None => self.points.get(index).copied(),
+        }
     }
 
     /// Number of points stored.
     pub fn len(&self) -> usize {
-        self.points.len()
+        self.shared
+            .as_ref()
+            .map_or(self.points.len(), |shared| shared.range.len())
     }
 
     /// Check if there are no points.
     pub fn is_empty(&self) -> bool {
-        self.points.is_empty()
+        self.len() == 0
     }
 
     /// Get the bounds for all points.
@@ -218,6 +313,9 @@ impl AppendOnlyData {
 
     /// Find the index range that intersects the X range.
     pub fn range_by_x(&self, range: Range) -> std::ops::Range<usize> {
+        if let Some(shared) = &self.shared {
+            return shared.bound(range.min, false)..shared.bound(range.max, true);
+        }
         if self.points.is_empty() {
             return 0..0;
         }
@@ -236,6 +334,25 @@ impl AppendOnlyData {
 
     /// Find the index of the point with nearest X value.
     pub fn nearest_index_by_x(&self, x: f64) -> Option<usize> {
+        if let Some(shared) = &self.shared {
+            if self.is_empty() || !x.is_finite() {
+                return None;
+            }
+            let right = shared.bound(x, false);
+            if right == 0 {
+                return Some(0);
+            }
+            if right == self.len() {
+                return Some(right - 1);
+            }
+            let left_distance = (shared.point(right - 1).unwrap().x - x).abs();
+            let right_distance = (shared.point(right).unwrap().x - x).abs();
+            return Some(if left_distance <= right_distance {
+                right - 1
+            } else {
+                right
+            });
+        }
         if self.points.is_empty() || !x.is_finite() {
             return None;
         }
@@ -455,3 +572,7 @@ mod tests {
         assert_eq!(data.nearest_index_by_x(2.1), Some(2));
     }
 }
+
+#[cfg(test)]
+#[path = "tests/shared.rs"]
+mod shared_tests;

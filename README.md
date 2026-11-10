@@ -21,16 +21,16 @@ Add this crate to your project:
 
 ```toml
 [dependencies]
-gpui-kit = "0.6.0"
-gpui-liveplot = "0.3.0"
+gpui-kit = "0.9.0"
+gpui-liveplot = "0.4.0"
 ```
 
 If your app uses `gpui-component`, enable theme integration:
 
 ```toml
 [dependencies]
-gpui-kit = "0.6.0"
-gpui-liveplot = { version = "0.3.0", features = ["gpui_component_theme"] }
+gpui-kit = "0.9.0"
+gpui-liveplot = { version = "0.4.0", features = ["gpui_component_theme"] }
 ```
 
 In Rust code, import it as `gpui_liveplot`:
@@ -77,13 +77,45 @@ gpui_kit::application().run(|cx| {
 
 ## Streaming Data
 
-`Series` is append-only. You can keep a shared handle and push new points over time.
+The append-only constructors let you keep a shared handle and push new points over time.
 
 - Implicit X mode: `Series::line` / `Series::scatter` + `push_y` / `extend_y`
 - Explicit X/Y mode: `Series::from_iter_points` + `push_point` / `extend_points`
 
 `Plot::add_series` stores a shared series handle, so appends from other handles
 become visible immediately.
+
+## Shared Samples and Rolling Windows
+
+`Series::from_shared_samples` references an immutable `Arc<[f32]>` and a range
+without allocating a second point array. X coordinates retain the original
+buffer index divided by the sample rate, including for a selected subrange.
+Summary and screen buffers are still maintained per series.
+
+Use `Series::from_sample_window` for a bounded acquisition window. Its
+`first_sample` is the absolute index of the buffer's first value. Replacing the
+window through `update_sample_window` keeps shared handles and their series
+identities, invalidates render caches, and rebuilds summaries in O(window length).
+Retained pins keep their absolute sample indices; evicted pins stop resolving
+instead of pointing at unrelated replacement data.
+
+```rust
+use std::sync::Arc;
+use gpui_liveplot::{Series, SeriesKind};
+
+let samples: Arc<[f32]> = Arc::from([10.0, 20.0, 30.0]);
+let mut series = Series::from_sample_window(
+    "sensor", samples, 100, 1_000.0, SeriesKind::Line(Default::default()),
+).unwrap();
+series.update_sample_window(Arc::from([20.0, 30.0, 40.0]), 101, 1_000.0).unwrap();
+```
+
+Both sample constructors reject append operations. Window updates must belong to
+the same acquisition and retain the meaning of overlapping sample indices; start
+a new `Series` for a new acquisition. Invalid input leaves the old window intact.
+Samples and rates must be finite, the rate must be positive, and sample positions
+and times must not overflow. Coordinates use `f64`, so very large absolute
+indices can share the same plotted X coordinate; pin indices must fit `usize`.
 
 ## View Modes
 

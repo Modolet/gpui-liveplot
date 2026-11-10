@@ -404,7 +404,7 @@ fn build_pins(
         if !series.is_visible() {
             continue;
         }
-        let Some(point) = series.with_store(|store| store.data().point(pin.point_index)) else {
+        let Some(point) = series.with_store(|store| store.pinned_point(pin.point_index)) else {
             continue;
         };
         let Some(screen) = transform.data_to_screen(point) else {
@@ -940,7 +940,7 @@ fn build_hover(
         else {
             return;
         };
-        let Some(point) = series.with_store(|store| store.data().point(target.pin.point_index))
+        let Some(point) = series.with_store(|store| store.pinned_point(target.pin.point_index))
         else {
             return;
         };

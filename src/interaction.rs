@@ -55,7 +55,7 @@ impl PlotRegions {
 pub struct Pin {
     /// Series identifier.
     pub series_id: SeriesId,
-    /// Point index within the series.
+    /// Point index within the series; absolute sample index for a sample window.
     pub point_index: usize,
 }
 

@@ -1,6 +1,6 @@
 //! Series storage combining raw data and summaries.
 
-use crate::datasource::summary::{DecimationScratch, SummaryLevels, decimate_minmax};
+use crate::datasource::summary::{DecimationScratch, SummaryLevels, decimate_minmax_iter};
 use crate::datasource::{AppendError, AppendOnlyData, XMode};
 use crate::geom::Point;
 use crate::view::Range;
@@ -13,6 +13,7 @@ pub(crate) struct SeriesStore {
     data: AppendOnlyData,
     summary: SummaryLevels,
     generation: u64,
+    window_start: Option<u64>,
 }
 
 impl SeriesStore {
@@ -24,14 +25,46 @@ impl SeriesStore {
     /// Create a store from existing data and base chunk size.
     pub fn with_base_chunk(data: AppendOnlyData, base_chunk: usize) -> Self {
         let mut summary = SummaryLevels::new(base_chunk);
-        for point in data.points() {
-            summary.push(*point);
+        for point in data.iter_points(0..data.len()) {
+            summary.push(point);
         }
         Self {
             data,
             summary,
             generation: 0,
+            window_start: None,
         }
+    }
+
+    pub(crate) fn mark_window(&mut self, first_sample: u64) {
+        self.window_start = Some(first_sample);
+    }
+
+    pub(crate) fn replace_window(
+        &mut self,
+        data: AppendOnlyData,
+        first_sample: u64,
+    ) -> Result<(), &'static str> {
+        let previous = self.window_start.ok_or("series is not a sample window")?;
+        if first_sample < previous {
+            return Err("a new acquisition requires a new series");
+        }
+        let mut replacement = Self::with_base_chunk(data, self.summary.base_chunk());
+        replacement.window_start = Some(first_sample);
+        replacement.generation = self.generation.wrapping_add(1);
+        *self = replacement;
+        Ok(())
+    }
+
+    pub(crate) fn pin_index(&self, local_index: usize) -> Option<usize> {
+        usize::try_from(self.window_start.unwrap_or(0))
+            .ok()?
+            .checked_add(local_index)
+    }
+
+    pub(crate) fn pinned_point(&self, index: usize) -> Option<Point> {
+        let first = usize::try_from(self.window_start.unwrap_or(0)).ok()?;
+        self.data.point(index.checked_sub(first)?)
     }
 
     /// Append a Y value for indexed data.
@@ -106,21 +139,21 @@ impl SeriesStore {
             return scratch.output();
         }
         let index_range = self.data.range_by_x(x_range);
-        let points = &self.data.points()[index_range.clone()];
-        if points.is_empty() {
+        let points = self.data.iter_points(index_range.clone());
+        if points.len() == 0 {
             return scratch.output();
         }
         if points.len() <= pixel_width.saturating_mul(2) {
-            scratch.output_mut().extend_from_slice(points);
+            scratch.output_mut().extend(points);
             return scratch.output();
         }
         if self.data.x_mode() == XMode::Explicit && !self.data.is_monotonic() {
-            return decimate_minmax(points, x_range, pixel_width, scratch);
+            return decimate_minmax_iter(points, x_range, pixel_width, scratch);
         }
 
         let target_bucket = (points.len() as f64 / pixel_width as f64).ceil() as usize;
         if target_bucket < self.summary.base_chunk() {
-            return decimate_minmax(points, x_range, pixel_width, scratch);
+            return decimate_minmax_iter(points, x_range, pixel_width, scratch);
         }
         if let Some(level) = self.summary.choose_level(target_bucket) {
             // Visit only complete visible buckets. Boundary and streaming-tail
@@ -130,10 +163,10 @@ impl SeriesStore {
             let first = index_range.start.div_ceil(chunk);
             let last = index_range.end / chunk;
             let prefix_end = (first * chunk).min(index_range.end);
-            if let Some(extrema) = self
-                .summary
-                .extrema(self.data.points(), index_range.start..prefix_end)
-            {
+            if let Some(extrema) = self.summary.extrema_by(
+                |index| self.data.point(index).unwrap(),
+                index_range.start..prefix_end,
+            ) {
                 extrema.push_ordered(scratch.output_mut());
             }
             if first < last {
@@ -142,16 +175,16 @@ impl SeriesStore {
                 }
             }
             let suffix_start = (last * chunk).max(prefix_end);
-            if let Some(extrema) = self
-                .summary
-                .extrema(self.data.points(), suffix_start..index_range.end)
-            {
+            if let Some(extrema) = self.summary.extrema_by(
+                |index| self.data.point(index).unwrap(),
+                suffix_start..index_range.end,
+            ) {
                 extrema.push_ordered(scratch.output_mut());
             }
             return scratch.output();
         }
 
-        decimate_minmax(points, x_range, pixel_width, scratch)
+        decimate_minmax_iter(points, x_range, pixel_width, scratch)
     }
 
     fn update_summary_from(&mut self, start_len: usize) {
@@ -159,8 +192,8 @@ impl SeriesStore {
         if new_len <= start_len {
             return;
         }
-        for point in &self.data.points()[start_len..new_len] {
-            self.summary.push(*point);
+        for point in self.data.iter_points(start_len..new_len) {
+            self.summary.push(point);
         }
         self.generation = self
             .generation
